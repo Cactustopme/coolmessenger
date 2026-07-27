@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cool Messenger - Вход</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/auth.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Страница логина -->
+        <div id="loginPage" class="page active">
+            <div class="auth-container">
+                <div class="auth-box">
+                    <h1>  Cool Messenger</h1>
+                    <h2>Вход в аккаунт</h2>
+                    
+                    <form id="loginForm">
+                        <div class="form-group">
+                            <label for="loginUsername">Имя пользователя</label>
+                            <input type="text" id="loginUsername" placeholder="Введите ваш username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Пароль</label>
+                            <input type="password" id="loginPassword" placeholder="••••••••" required>
+                        </div>
+                        <button type="submit" class="btn-primary">Войти</button>
+                    </form>
+                    
+                    <p class="switch-form">
+                        Нет аккаунта? <a href="#" id="showSignup">Зарегистрироваться</a>
+                    </p>
+                    <div id="loginError" class="error-message"></div>
+                </div>
+
+                <!-- Форма регистрации -->
+                <div class="auth-box" style="display:none;">
+                    <h1>  Cool Messenger</h1>
+                    <h2>Регистрация</h2>
+                    
+                    <form id="signupForm">
+                        <div class="form-group">
+                            <label for="signupEmail">Email</label>
+                            <input type="email" id="signupEmail" placeholder="your@email.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="signupUsername">Имя пользователя</label>
+                            <input type="text" id="signupUsername" placeholder="CoolUser" required minlength="3">
+                        </div>
+                        <div class="form-group">
+                            <label for="signupPassword">Пароль</label>
+                            <input type="password" id="signupPassword" placeholder="••••••••" required minlength="6">
+                        </div>
+                        <div class="form-group">
+                            <label for="signupPhone">Телефон (необязательно)</label>
+                            <input type="tel" id="signupPhone" placeholder="+7 900 123-45-67">
+                        </div>
+                        <button type="submit" class="btn-primary">Зарегистрироваться</button>
+                    </form>
+                    
+                    <p class="switch-form">
+                        Уже есть аккаунт? <a href="#" id="showLogin">Войти</a>
+                    </p>
+                    <div id="signupError" class="error-message"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Страница чата (изначально скрыта) -->
+        <div id="chatPage" class="page" style="display:none;">
+            <!-- Шапка -->
+            <header class="chat-header">
+                <div class="header-left">
+                    <h1>💬 Cool Messenger</h1>
+                    <span id="userStatus" class="status online">Онлайн</span>
+                </div>
+                <div class="header-right">
+                    <button id="logoutBtn" class="btn-outline">Выйти</button>
+                </div>
+            </header>
+
+            <div class="chat-layout">
+                <!-- Список чатов слева -->
+                <aside class="chat-sidebar">
+                    <div class="sidebar-header">
+                        <h3>Чаты</h3>
+                        <button id="newChatBtn" class="btn-icon" title="Новый чат">➕</button>
+                    </div>
+                    <div id="chatList" class="chat-list">
+                        <!-- Сюда будут рендериться чаты -->
+                        <div class="loading">Загрузка чатов...</div>
+                    </div>
+                </aside>
+
+                <!-- Основное окно чата -->
+                <main class="chat-main">
+                    <div class="chat-welcome" id="chatWelcome">
+                        <div class="welcome-content">
+                            <h2>👋 Добро пожаловать!</h2>
+                            <p>Выберите чат слева, чтобы начать общение</p>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-window" id="chatWindow" style="display:none;">
+                        <div class="chat-messages" id="messageContainer">
+                            <!-- Сообщения будут здесь -->
+                        </div>
+                        
+                        <div class="chat-input">
+                            <textarea id="messageInput" placeholder="Введите сообщение..." rows="1"></textarea>
+                            <button id="sendButton" class="btn-send">➤</button>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- Подключаем JS -->
+    <script type="module" src="js/app.js"></script>
+    <!-- Модальное окно создания чата -->
+    <div id="newChatModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Создать чат</h2>
+                <button class="modal-close" id="closeModalBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="chatTypeSelect">Тип чата</label>
+                    <select id="chatTypeSelect">
+                        <option value="direct">Личный чат</option>
+                        <option value="group">Групповой чат</option>
+                    </select>
+                </div>
+                <div class="form-group" id="chatNameGroup">
+                    <label for="chatNameInput">Название чата</label>
+                    <input type="text" id="chatNameInput" placeholder="Введите название">
+                </div>
+                <div class="form-group" id="chatTargetGroup">
+                    <label for="chatTargetInput">UUID пользователя (для личного чата)</label>
+                    <input type="text" id="chatTargetInput" placeholder="Введите UUID друга">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelModalBtn">Отмена</button>
+                <button class="btn-primary" id="createChatBtn">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Подключаем JS -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
