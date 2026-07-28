@@ -1,10 +1,8 @@
-/* Страница авторизации */
 .page {
     display: none;
     height: 100vh;
     width: 100vw;
 }
-
 .page.active {
     display: flex;
     align-items: center;
@@ -16,20 +14,17 @@
     max-width: 420px;
     padding: 20px;
 }
-
 .auth-box {
     background: var(--white);
     border-radius: var(--radius);
     padding: 40px 32px;
     box-shadow: var(--shadow);
 }
-
 .auth-box h1 {
     font-size: 28px;
     text-align: center;
     margin-bottom: 8px;
 }
-
 .auth-box h2 {
     font-size: 18px;
     font-weight: 400;
@@ -38,10 +33,10 @@
     margin-bottom: 24px;
 }
 
+/* ===== ОСНОВНЫЕ СТИЛИ ДЛЯ ПОЛЕЙ ===== */
 .form-group {
     margin-bottom: 16px;
 }
-
 .form-group label {
     display: block;
     font-weight: 500;
@@ -49,24 +44,38 @@
     margin-bottom: 4px;
     color: var(--text);
 }
-
 .form-group input {
     width: 100%;
+    transition: border-color 0.2s, box-shadow 0.2s;
 }
 
+/* ===== СТИЛИ ДЛЯ ОШИБОК ===== */
+.form-group .error-text {
+    display: none;
+    color: #ef4444;
+    font-size: 13px;
+    margin-top: 4px;
+}
+.form-group.error input {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+.form-group.error .error-text {
+    display: block;
+}
+
+/* ===== ПЕРЕКЛЮЧЕНИЕ МЕЖДУ ФОРМАМИ ===== */
 .switch-form {
     text-align: center;
     margin-top: 16px;
     font-size: 14px;
     color: var(--text-light);
 }
-
 .switch-form a {
     color: var(--primary);
     text-decoration: none;
     font-weight: 600;
 }
-
 .switch-form a:hover {
     text-decoration: underline;
 }

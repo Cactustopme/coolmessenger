@@ -1,6 +1,5 @@
-// Генерация UUID для временных сообщений
 export function generateUUID() {
-    return crypto.randomUUID ? crypto.randomUUID() : 
+    return crypto.randomUUID ? crypto.randomUUID() :
         'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
             const r = Math.random() * 16 | 0;
             const v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -8,33 +7,22 @@ export function generateUUID() {
         });
 }
 
-// Форматирование времени
 export function formatTime(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('ru-RU', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-    });
+    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
 export function formatFullDate(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleString('ru-RU', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    return date.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-// Экранирование HTML (защита от XSS)
 export function escapeHTML(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-// Обработка ошибок с сервера
 export function handleApiError(result) {
     const errors = {
         'REQUEST_INVALID': 'Неверный запрос',

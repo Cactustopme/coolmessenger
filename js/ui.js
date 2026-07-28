@@ -1,9 +1,8 @@
 import { escapeHTML, formatTime, generateUUID } from './utils.js';
-import { getUsername, getSession, clearSession } from './auth.js';
+import { getUsername, getSession, clearSession, getUUID } from './auth.js';
 import { wsClient } from './websocket.js';
 import { newDirectChat, newGroupChat, searchUser } from './api.js';
 
-// DOM элементы (инициализируем при загрузке)
 let elements = {};
 
 export function initUI() {
@@ -25,10 +24,10 @@ export function initUI() {
         logoutBtn: document.getElementById('logoutBtn'),
         userStatus: document.getElementById('userStatus'),
         newChatBtn: document.getElementById('newChatBtn'),
+        searchInput: document.getElementById('searchInput'),
+        searchBtn: document.getElementById('searchBtn'),
     };
 }
-
-// === Управление страницами ===
 
 export function showLoginPage() {
     elements.loginPage.classList.add('active');
@@ -41,50 +40,36 @@ export function showChatPage() {
     elements.loginPage.style.display = 'none';
     elements.chatPage.style.display = 'flex';
     elements.chatPage.style.flexDirection = 'column';
-    
-    // Обновляем статус
     const username = getUsername();
     if (username) {
         elements.userStatus.textContent = `👤 ${username}`;
     }
 }
 
-// === Рендер списка чатов ===
-
-let g_Chats = [];
-
+// --- Рендер чатов ---
 export function renderChats(chats) {
-    g_Chats.push(...chats)
     if (!elements.chatList) return;
-    
-    if (!g_Chats || g_Chats.length === 0) {
-        elements.chatList.innerHTML = `
-            <div class="empty-state">
-                <p>Нет чатов</p>
-                <button class="btn-primary" id="createFirstChat">Создать чат</button>
-            </div>
-        `;
-        const btn = document.getElementById('createFirstChat');
-        if (btn) btn.addEventListener('click', () => showNewChatDialog());
+    if (!chats || chats.length === 0) {
+        elements.chatList.innerHTML = `<div class="empty-state"><p>Нет чатов</p></div>`;
         return;
     }
-
     let html = '';
-    g_Chats.forEach(chat => {
+    chats.forEach(chat => {
         const lastMsg = chat.lastMessage ? escapeHTML(chat.lastMessage) : 'Нет сообщений';
         const time = chat.lastMessageTimeSent ? formatTime(chat.lastMessageTimeSent) : '';
+        const avatarLetter = (chat.name || '?')[0].toUpperCase();
         html += `
             <div class="chat-item" data-uuid="${chat.UUID}">
-                <div class="chat-name">${escapeHTML(chat.name || 'Без названия')}</div>
-                <div class="chat-last">${lastMsg}</div>
+                <div class="chat-avatar">${avatarLetter}</div>
+                <div class="chat-info">
+                    <div class="chat-name">${escapeHTML(chat.name || 'Без названия')}</div>
+                    <div class="chat-last">${lastMsg}</div>
+                </div>
                 <div class="chat-time">${time}</div>
             </div>
         `;
     });
-
     elements.chatList.innerHTML = html;
-
-    // Добавляем обработчики клика
     elements.chatList.querySelectorAll('.chat-item').forEach(el => {
         el.addEventListener('click', () => {
             const uuid = el.dataset.uuid;
@@ -93,54 +78,40 @@ export function renderChats(chats) {
     });
 }
 
-// === Выбор чата ===
-
+// --- Выбор чата ---
 let currentChatUUID = null;
 let messages = [];
 let isLoadingMore = false;
 
 export function selectChat(chatUUID) {
     currentChatUUID = chatUUID;
-    
-    // Подсвечиваем выбранный чат
     document.querySelectorAll('.chat-item').forEach(el => {
         el.classList.toggle('active', el.dataset.uuid === chatUUID);
     });
-
-    // Показываем окно чата
     elements.chatWelcome.style.display = 'none';
     elements.chatWindow.style.display = 'flex';
     elements.messageContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
-
-    // Запрашиваем сообщения через WS
     wsClient.openChat(chatUUID);
 }
 
-// === Рендер сообщений ===
-
+// --- Рендер сообщений ---
 export function renderMessages(msgs, append = false) {
     if (!append) {
         messages = msgs || [];
         elements.messageContainer.innerHTML = '';
     } else {
-        // Добавляем старые сообщения в начало
         messages = [...msgs, ...messages];
     }
-
-    // Рендерим все сообщения
     const fragment = document.createDocumentFragment();
     messages.forEach(msg => {
         const el = createMessageElement(msg);
         fragment.appendChild(el);
     });
-
     if (!append) {
         elements.messageContainer.innerHTML = '';
         elements.messageContainer.appendChild(fragment);
-        // Скроллим вниз
         elements.messageContainer.scrollTop = elements.messageContainer.scrollHeight;
     } else {
-        // При добавлении старых - сохраняем позицию
         const oldScrollHeight = elements.messageContainer.scrollHeight;
         elements.messageContainer.prepend(fragment);
         elements.messageContainer.scrollTop = elements.messageContainer.scrollHeight - oldScrollHeight;
@@ -158,7 +129,6 @@ export function updateMessage(uuid, newData) {
     const index = messages.findIndex(m => m.UUID === uuid);
     if (index !== -1) {
         messages[index] = { ...messages[index], ...newData };
-        // Перерендериваем всё (проще, чем искать DOM элемент)
         renderMessages(messages);
     }
 }
@@ -168,49 +138,18 @@ function createMessageElement(message) {
     const isMine = message.sentBy === 'me' || message.sentBy === getUUID();
     div.className = `message ${isMine ? 'message-sent' : 'message-received'}`;
     div.dataset.uuid = message.UUID;
-
     const content = escapeHTML(message.content || '');
     const time = message.timestamp ? formatTime(message.timestamp) : '';
     const pending = message.isPending ? '<span class="pending">⏳</span>' : '';
-
     div.innerHTML = `
         <div class="message-content">${content}</div>
         <div class="message-time">${time} ${pending}</div>
     `;
-
-    // Кнопки для своих сообщений
-    if (isMine && !message.isPending) {
-        const actions = document.createElement('div');
-        actions.className = 'message-actions';
-        actions.innerHTML = `
-            <button class="edit-msg" data-uuid="${message.UUID}">✏️</button>
-            <button class="delete-msg" data-uuid="${message.UUID}">🗑️</button>
-        `;
-        div.appendChild(actions);
-
-        actions.querySelector('.edit-msg').addEventListener('click', (e) => {
-            e.stopPropagation();
-            const newText = prompt('Редактировать сообщение:', message.content);
-            if (newText && newText.trim()) {
-                wsClient.editMessage(message.UUID, newText.trim());
-            }
-        });
-
-        actions.querySelector('.delete-msg').addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (confirm('Удалить сообщение?')) {
-                wsClient.deleteMessage(message.UUID);
-            }
-        });
-    }
-
     return div;
 }
 
-// === Обработка прокрутки (бесконечный скролл) ===
-
+// --- Бесконечный скролл ---
 let lastScrollTime = 0;
-
 export function setupInfiniteScroll() {
     elements.messageContainer.addEventListener('scroll', () => {
         if (elements.messageContainer.scrollTop === 0 && !isLoadingMore) {
@@ -225,55 +164,156 @@ export function setupInfiniteScroll() {
     });
 }
 
-// === Диалог создания чата ===
+// --- Модальное окно создания чата ---
+let modalListenersAdded = false;
 
-export function showNewChatDialog() {
-    const choice = confirm('Создать личный чат? (OK - личный, Отмена - групповой)');
-    if (choice) {
-        // Личный чат
-        const targetUUID = prompt('Введите UUID пользователя:');
-        if (targetUUID && targetUUID.trim()) {
-            const name = prompt('Введите имя чата:') || 'Личный чат';
-            newDirectChat(name, targetUUID.trim())
-                .then(() => alert('Чат создан!'))
-                .catch(err => alert('Ошибка: ' + err.message));
-        }
+export function showNewChatModal() {
+    const modal = document.getElementById('newChatModal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    document.getElementById('chatNameInput').value = '';
+    document.getElementById('chatTargetInput').value = '';
+    document.getElementById('chatTypeSelect').value = 'direct';
+    toggleChatFields();
+    if (!modalListenersAdded) {
+        addModalListeners();
+        modalListenersAdded = true;
+    }
+}
+
+function addModalListeners() {
+    const modal = document.getElementById('newChatModal');
+    document.getElementById('closeModalBtn').onclick = hideModal;
+    document.getElementById('cancelModalBtn').onclick = hideModal;
+    document.getElementById('chatTypeSelect').onchange = toggleChatFields;
+    document.getElementById('createChatBtn').onclick = handleCreateChat;
+    modal.addEventListener('click', (e) => { if (e.target === modal) hideModal(); });
+}
+
+function hideModal() {
+    document.getElementById('newChatModal').style.display = 'none';
+}
+
+function toggleChatFields() {
+    const type = document.getElementById('chatTypeSelect').value;
+    const nameGroup = document.getElementById('chatNameGroup');
+    const targetGroup = document.getElementById('chatTargetGroup');
+    if (type === 'direct') {
+        nameGroup.style.display = 'block';
+        targetGroup.style.display = 'block';
+        document.getElementById('chatNameInput').placeholder = 'Имя для чата (необязательно)';
     } else {
-        // Групповой чат
-        const name = prompt('Введите название группового чата:');
-        if (name && name.trim()) {
-            newGroupChat(name.trim())
-                .then(() => alert('Группа создана!'))
-                .catch(err => alert('Ошибка: ' + err.message));
+        nameGroup.style.display = 'block';
+        targetGroup.style.display = 'none';
+        document.getElementById('chatNameInput').placeholder = 'Название группы';
+    }
+}
+
+async function handleCreateChat() {
+    const type = document.getElementById('chatTypeSelect').value;
+    const name = document.getElementById('chatNameInput').value.trim() || 'Новый чат';
+    const targetUUID = document.getElementById('chatTargetInput').value.trim();
+    try {
+        if (type === 'direct') {
+            if (!targetUUID) { showNotification('Введите UUID пользователя', 'error'); return; }
+            await newDirectChat(name, targetUUID);
+        } else {
+            await newGroupChat(name);
         }
+        showNotification('✅ Чат создан!', 'success');
+        hideModal();
+        wsClient.send({ action: 'REFRESH_CHATS' });
+    } catch (error) {
+        showNotification('❌ Ошибка: ' + (error.message || 'Не удалось создать чат'), 'error');
     }
 }
 
-// === Выход ===
+// --- Уведомления (вместо alert) ---
+function showNotification(text, type = 'info') {
+    const colors = { success: '#22c55e', error: '#ef4444', info: '#6c63ff' };
+    const div = document.createElement('div');
+    div.style.cssText = `
+        position: fixed; bottom: 20px; right: 20px;
+        background: ${colors[type] || colors.info};
+        color: white; padding: 12px 24px;
+        border-radius: 10px; font-weight: 500;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 9999; animation: fadeIn 0.3s ease;
+        max-width: 400px;
+    `;
+    div.textContent = text;
+    document.body.appendChild(div);
+    setTimeout(() => {
+        div.style.opacity = '0';
+        div.style.transition = 'opacity 0.3s';
+        setTimeout(() => div.remove(), 300);
+    }, 3000);
+}
 
+// --- Выход ---
 export function logout() {
-    if (confirm('Выйти из аккаунта?')) {
-        wsClient.disconnect();
-        clearSession();
-        showLoginPage();
-        // Очищаем состояние
-        currentChatUUID = null;
-        messages = [];
-    }
+    wsClient.disconnect();
+    clearSession();
+    showLoginPage();
+    currentChatUUID = null;
+    messages = [];
 }
 
-// === Показ ошибок ===
+// --- Поиск пользователей ---
+export function setupSearch() {
+    const searchBtn = document.getElementById('searchBtn');
+    const searchInput = document.getElementById('searchInput');
+    if (!searchBtn || !searchInput) return;
 
-export function showLoginError(message) {
-    const el = elements.loginError;
-    el.textContent = message;
-    el.style.display = 'block';
-    setTimeout(() => { el.style.display = 'none'; }, 5000);
+    const doSearch = async () => {
+        const username = searchInput.value.trim();
+        if (!username) return;
+        try {
+            const result = await searchUser(username);
+            if (result.result === 'SUCCESS') {
+                showNotification(`👤 Пользователь найден! UUID: ${result.UUID}`, 'success');
+            } else {
+                showNotification('Пользователь не найден', 'error');
+            }
+        } catch (error) {
+            showNotification('Ошибка поиска', 'error');
+        }
+    };
+
+    searchBtn.addEventListener('click', doSearch);
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') doSearch();
+    });
 }
 
-export function showSignupError(message) {
-    const el = elements.signupError;
-    el.textContent = message;
-    el.style.display = 'block';
-    setTimeout(() => { el.style.display = 'none'; }, 5000);
+// --- Уведомления (вместо alert) ---
+export function showNotification(text, type = 'info') {
+    const colors = {
+        success: '#22c55e',
+        error: '#ef4444',
+        info: '#6c63ff'
+    };
+    const div = document.createElement('div');
+    div.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: ${colors[type] || colors.info};
+        color: white;
+        padding: 12px 24px;
+        border-radius: 10px;
+        font-weight: 500;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 9999;
+        animation: fadeIn 0.3s ease;
+        max-width: 400px;
+        transition: opacity 0.3s;
+    `;
+    div.textContent = text;
+    document.body.appendChild(div);
+
+    setTimeout(() => {
+        div.style.opacity = '0';
+        setTimeout(() => div.remove(), 400);
+    }, 3000);
 }

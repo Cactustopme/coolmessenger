@@ -1,53 +1,34 @@
-// Главный файл приложения
 import { CONFIG } from './config.js';
-import { 
-    signup, userLogin, appLogin, 
-    getThisUserData 
-} from './api.js';
-import { 
-    saveSession, loadSession, clearSession, 
-    getSession, getUUID, isAuthenticated 
-} from './auth.js';
+import { signup, userLogin, appLogin, getThisUserData } from './api.js';
+import { saveSession, loadSession, clearSession, getUUID, isAuthenticated } from './auth.js';
 import { wsClient } from './websocket.js';
 import {
     initUI, showLoginPage, showChatPage,
     renderChats, renderMessages, addMessage, updateMessage,
     selectChat, setupInfiniteScroll,
-    showNewChatDialog, logout,
-    showLoginError, showSignupError
+    showNewChatModal, logout,
+    showLoginError, showSignupError, setupSearch, showNotification
 } from './ui.js';
-
-// ===== ИНИЦИАЛИЗАЦИЯ =====
+import { initMenu } from './menu.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Инициализируем UI
     initUI();
-    
-    // Настраиваем обработчики
     setupEventListeners();
-    
-    // Настраиваем бесконечный скролл
     setupInfiniteScroll();
-    
-    // Настраиваем обработчики WebSocket
     setupWebSocketHandlers();
-    
-    // Проверяем, есть ли сохраненная сессия
+    setupSearch();
+    initMenu();
+
     if (loadSession() && isAuthenticated()) {
-        // Пробуем восстановить сессию
         restoreSession();
     } else {
         showLoginPage();
     }
 });
 
-// ===== ВОССТАНОВЛЕНИЕ СЕССИИ =====
-
 async function restoreSession() {
     try {
-        // Пробуем получить данные пользователя для проверки
         await getThisUserData();
-        // Если успешно - подключаем WS
         wsClient.connect();
         showChatPage();
     } catch (error) {
@@ -57,29 +38,22 @@ async function restoreSession() {
     }
 }
 
-// ===== ОБРАБОТЧИКИ СОБЫТИЙ =====
-
 function setupEventListeners() {
-    // Логин
     document.getElementById('loginForm')?.addEventListener('submit', handleLogin);
-    
-    // Регистрация
     document.getElementById('signupForm')?.addEventListener('submit', handleSignup);
-    
-    // Переключение между формами
+
     document.getElementById('showSignup')?.addEventListener('click', (e) => {
         e.preventDefault();
         document.querySelectorAll('.auth-box').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.auth-box')[1].style.display = 'block';
     });
-    
+
     document.getElementById('showLogin')?.addEventListener('click', (e) => {
         e.preventDefault();
         document.querySelectorAll('.auth-box').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.auth-box')[0].style.display = 'block';
     });
-    
-    // Отправка сообщения
+
     document.getElementById('sendButton')?.addEventListener('click', handleSendMessage);
     document.getElementById('messageInput')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -87,99 +61,100 @@ function setupEventListeners() {
             handleSendMessage();
         }
     });
-    
-    // Выход
+
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
-    
-    // Новый чат
-    document.getElementById('newChatBtn')?.addEventListener('click', showNewChatDialog);
+    document.getElementById('newChatBtn')?.addEventListener('click', showNewChatModal);
 }
 
-// ===== ОБРАБОТЧИК ЛОГИНА =====
-
+// --- ЛОГИН ---
 async function handleLogin(e) {
     e.preventDefault();
-    const username = document.getElementById('loginUsername').value;
-    const password = document.getElementById('loginPassword').value;
-    
+
+    const usernameInput = document.getElementById('loginUsername');
+    const passwordInput = document.getElementById('loginPassword');
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+
+    // Очищаем старые ошибки
+    usernameInput.style.borderColor = '';
+    passwordInput.style.borderColor = '';
+    document.getElementById('loginError').style.display = 'none';
+
     if (!username || !password) {
+        if (!username) usernameInput.style.borderColor = '#ef4444';
+        if (!password) passwordInput.style.borderColor = '#ef4444';
         showLoginError('Заполните все поля');
         return;
     }
 
     try {
-        // Шаг 1: Получаем UUID и token
         const loginResult = await userLogin(username, password);
         if (loginResult.result !== 'SUCCESS') {
             showLoginError(loginResult.result || 'Ошибка входа');
             return;
         }
 
-        // Шаг 2: Получаем sessionID
         const appResult = await appLogin(loginResult.UUID, loginResult.token);
         if (appResult.result !== 'SUCCESS') {
             showLoginError(appResult.result || 'Ошибка создания сессии');
             return;
         }
 
-        // Шаг 3: Сохраняем сессию
-        saveSession(
-            loginResult.UUID, 
-            loginResult.token, 
-            appResult.sessionID,
-            null // username получим позже
-        );
+        saveSession(loginResult.UUID, loginResult.token, appResult.sessionID, null);
 
-        // Шаг 4: Получаем данные пользователя
         try {
             const userData = await getThisUserData();
             if (userData.result === 'SUCCESS') {
-                saveSession(
-                    loginResult.UUID,
-                    loginResult.token,
-                    appResult.sessionID,
-                    userData.username
-                );
+                saveSession(loginResult.UUID, loginResult.token, appResult.sessionID, userData.username);
             }
         } catch (e) {
             console.warn('Не удалось получить данные пользователя');
         }
 
-        // Шаг 5: Подключаем WS
         wsClient.connect();
         showChatPage();
-        
-        // Очищаем форму
-        document.getElementById('loginEmail').value = '';
-        document.getElementById('loginPassword').value = '';
-
+        usernameInput.value = '';
+        passwordInput.value = '';
     } catch (error) {
         console.error('Ошибка входа:', error);
         showLoginError('Ошибка соединения с сервером');
     }
 }
 
-// ===== ОБРАБОТЧИК РЕГИСТРАЦИИ =====
-
+// --- РЕГИСТРАЦИЯ (исправлена!) ---
 async function handleSignup(e) {
     e.preventDefault();
-    
-    const email = document.getElementById('signupEmail').value.trim();
-    const username = document.getElementById('signupUsername').value.trim();
-    const password = document.getElementById('signupPassword').value;
-    const phone = document.getElementById('signupPhone').value.trim();
+
+    const emailInput = document.getElementById('signupEmail');
+    const usernameInput = document.getElementById('signupUsername');
+    const passwordInput = document.getElementById('signupPassword');
+    const phoneInput = document.getElementById('signupPhone');
+
+    const email = emailInput.value.trim();
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    const phone = phoneInput.value.trim();
+
+    // Очищаем старые ошибки
+    [emailInput, usernameInput, passwordInput].forEach(el => el.style.borderColor = '');
+    document.getElementById('signupError').style.display = 'none';
 
     if (!email || !username || !password) {
+        if (!email) emailInput.style.borderColor = '#ef4444';
+        if (!username) usernameInput.style.borderColor = '#ef4444';
+        if (!password) passwordInput.style.borderColor = '#ef4444';
         showSignupError('Заполните все обязательные поля');
         return;
     }
 
     if (username.length < 3) {
+        usernameInput.style.borderColor = '#ef4444';
         showSignupError('Имя пользователя должно быть не менее 3 символов');
         return;
     }
 
     if (password.length < 6) {
+        passwordInput.style.borderColor = '#ef4444';
         showSignupError('Пароль должен быть не менее 6 символов');
         return;
     }
@@ -191,43 +166,37 @@ async function handleSignup(e) {
             return;
         }
 
-        alert('✅ Регистрация успешна! Теперь войдите в аккаунт.');
-        
+        showNotification('✅ Регистрация успешна! Теперь войдите.', 'success');
+
         // Переключаем на форму логина
         document.querySelectorAll('.auth-box').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.auth-box')[0].style.display = 'block';
-        
-        // Подставляем email
-        document.getElementById('loginEmail').value = email;
-        document.getElementById('loginPassword').value = '';
-        
-        // Очищаем форму регистрации
-        document.getElementById('signupEmail').value = '';
-        document.getElementById('signupUsername').value = '';
-        document.getElementById('signupPassword').value = '';
-        document.getElementById('signupPhone').value = '';
 
+        // Подставляем логин
+        document.getElementById('loginUsername').value = username;
+        document.getElementById('loginPassword').value = '';
+
+        // Очищаем форму регистрации
+        emailInput.value = '';
+        usernameInput.value = '';
+        passwordInput.value = '';
+        phoneInput.value = '';
     } catch (error) {
         console.error('Ошибка регистрации:', error);
         showSignupError('Ошибка соединения с сервером');
     }
 }
 
-// ===== ОБРАБОТЧИК ОТПРАВКИ СООБЩЕНИЯ =====
-
+// --- ОТПРАВКА СООБЩЕНИЯ ---
 function handleSendMessage() {
     const input = document.getElementById('messageInput');
     const content = input.value.trim();
     if (!content) return;
 
-    const localUUID = crypto.randomUUID ? crypto.randomUUID() : 
-        Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    const localUUID = crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).substr(2, 9);
     const timestamp = new Date().toISOString();
 
-    // Отправляем через WS
     wsClient.sendMessage(content, timestamp, localUUID);
-
-    // Добавляем в UI (оптимистично)
     addMessage({
         UUID: localUUID,
         content: content,
@@ -240,49 +209,25 @@ function handleSendMessage() {
     input.style.height = 'auto';
 }
 
-// ===== ОБРАБОТЧИКИ WEBSOCKET =====
-
+// --- WEBSOCKET ---
 function setupWebSocketHandlers() {
-    // Обновление списка чатов
-    wsClient.on('chatsUpdate', (chats) => {
-        renderChats(chats);
-    });
+    wsClient.on('chatsUpdate', (chats) => { renderChats(chats); });
+    wsClient.on('chatOpened', (messages) => { renderMessages(messages); });
+    wsClient.on('moreMessages', (oldMessages) => { renderMessages(oldMessages, true); });
+    wsClient.on('newMessage', (message) => { addMessage(message); });
 
-    // Открытие чата (первые 20 сообщений)
-    wsClient.on('chatOpened', (messages) => {
-        renderMessages(messages);
-    });
-
-    // Дополнительные старые сообщения
-    wsClient.on('moreMessages', (oldMessages) => {
-        renderMessages(oldMessages, true);
-    });
-
-    // Новое сообщение
-    wsClient.on('newMessage', (message) => {
-        addMessage(message);
-    });
-
-    // Подтверждение отправки (localUUID -> realUUID)
     wsClient.on('messageConfirmed', (data) => {
-        // Обновляем сообщение в UI
-        updateMessage(data.localUUID, { 
-            UUID: data.realUUID, 
-            isPending: false 
-        });
+        updateMessage(data.localUUID, { UUID: data.realUUID, isPending: false });
     });
 
-    // Удаление сообщения
     wsClient.on('messageDeleted', (data) => {
         updateMessage(data.messageUUID, { content: '🗑️ Сообщение удалено' });
     });
 
-    // Редактирование сообщения
     wsClient.on('messageEdited', (data) => {
         updateMessage(data.messageUUID, { content: data.newText });
     });
 
-    // Статус соединения
     wsClient.on('connectionState', (connected) => {
         const statusEl = document.getElementById('userStatus');
         if (connected) {
@@ -294,30 +239,22 @@ function setupWebSocketHandlers() {
         }
     });
 
-    // Ошибки
     wsClient.on('error', (error) => {
         console.error('WebSocket ошибка:', error);
-        // Можно показать уведомление пользователю
+        showNotification('⚠️ Ошибка соединения', 'error');
     });
 
-    // Результаты операций
     wsClient.on('result', (data) => {
         if (data.result === 'SUCCESS') {
             console.log('Операция успешна');
         } else {
             console.warn('Операция вернула ошибку:', data.result);
+            showNotification('❌ ' + (data.result || 'Ошибка операции'), 'error');
         }
     });
 }
 
-// ===== ОБРАБОТКА ПЕРЕЗАГРУЗКИ СТРАНИЦЫ =====
-
-window.addEventListener('beforeunload', () => {
-    // Отключаем WS корректно
-    wsClient.disconnect();
-});
-
-// ===== ДОПОЛНИТЕЛЬНО: АВТО-РЕСАЙЗ TEXTAREA =====
+window.addEventListener('beforeunload', () => { wsClient.disconnect(); });
 
 document.addEventListener('input', (e) => {
     if (e.target.id === 'messageInput') {
@@ -326,11 +263,4 @@ document.addEventListener('input', (e) => {
     }
 });
 
-// Делаем функции глобальными для inline обработчиков
-window.selectChat = selectChat;
-window.showNewChatDialog = showNewChatDialog;
-window.logout = logout;
-
-console.log('🚀 Cool Messenger приложение загружено!');
-console.log(`📡 API: ${CONFIG.API_BASE}`);
-console.log(`🔌 WS: ${CONFIG.WS_URL}`);
+console.log('🚀 Cool Messenger загружен!');
