@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { signup, userLogin, appLogin, getThisUserData } from './api.js';
+import {signup, userLogin, appLogin, getThisUserData, newDirectChat, newGroupChat, searchUser} from './api.js';
 import { saveSession, loadSession, clearSession, getUUID, isAuthenticated } from './auth.js';
 import { wsClient } from './websocket.js';
 import {
@@ -7,7 +7,7 @@ import {
     renderChats, renderMessages, addMessage, updateMessage,
     selectChat, setupInfiniteScroll,
     showNewChatModal, logout,
-    showLoginError, showSignupError, setupSearch, showNotification
+    showLoginError, showSignupError, setupSearch, showNotification, hideNewChatModal
 } from './ui.js';
 import { initMenu } from './menu.js';
 
@@ -41,7 +41,10 @@ async function restoreSession() {
 function setupEventListeners() {
     document.getElementById('loginForm')?.addEventListener('submit', handleLogin);
     document.getElementById('signupForm')?.addEventListener('submit', handleSignup);
-
+    document.getElementById("closeModalBtn")?.addEventListener("click", hideNewChatModal);
+    document.getElementById("createChatBtn")?.addEventListener("click", handleCreateChat);
+    document.getElementById("cancelModalBtn")?.addEventListener("click", hideNewChatModal);
+    document.getElementById("menuNewChat")?.addEventListener('click', showNewChatModal);
     document.getElementById('showSignup')?.addEventListener('click', (e) => {
         e.preventDefault();
         document.querySelectorAll('.auth-box').forEach(el => el.style.display = 'none');
@@ -63,7 +66,11 @@ function setupEventListeners() {
     });
 
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
+
     document.getElementById('newChatBtn')?.addEventListener('click', showNewChatModal);
+    
+    document.getElementById("chatTypeSelect")?.addEventListener("change", updateNewChatModalFields);
+    updateNewChatModalFields();
 }
 
 // --- ЛОГИН ---
@@ -209,12 +216,100 @@ function handleSendMessage() {
     input.style.height = 'auto';
 }
 
+// --- НОВЫЙ ЧАТ ---
+function updateNewChatModalFields() {
+    const chatType = document.getElementById('chatTypeSelect')?.value;
+    const chatNameGroup = document.getElementById('chatNameGroup');
+    const chatTargetGroup = document.getElementById('chatTargetGroup');
+
+    if (!chatNameGroup || !chatTargetGroup) {
+        return;
+    }
+
+    if (chatType === 'direct') {
+        chatNameGroup.style.display = 'none';
+        chatTargetGroup.style.display = 'block';
+    } else {
+        chatNameGroup.style.display = 'block';
+        chatTargetGroup.style.display = 'none';
+    }
+}
+
+async function handleCreateChat(event) {
+    event.preventDefault();
+
+    const chatType = document.getElementById('chatTypeSelect')?.value;
+    const chatName = document.getElementById('chatNameInput')?.value.trim();
+    const username = document.getElementById('directUsername')?.value.trim();
+    const createChatBtn = document.getElementById('createChatBtn');
+
+    try {
+        if (createChatBtn) {
+            createChatBtn.disabled = true;
+            createChatBtn.textContent = 'Создание...';
+        }
+
+        let createdChat;
+
+        if (chatType === 'direct') {
+            if (!username) {
+                showNotification('Введите имя пользователя');
+                return;
+            }
+
+            let userData = await searchUser(username)
+
+            createdChat = await newDirectChat(userData.UUID);
+        } else if (chatType === 'group') {
+            if (!chatName) {
+                showNotification('Введите название группового чата');
+                return;
+            }
+
+            createdChat = await newGroupChat(chatName);
+        } else {
+            showNotification('Неизвестный тип чата');
+            return;
+        }
+
+        hideNewChatModal();
+
+        document.getElementById('chatNameInput').value = '';
+        document.getElementById('directUsername').value = '';
+
+        const chatUUID =
+            createdChat?.UUID ||
+            createdChat?.uuid ||
+            createdChat?.chatUUID ||
+            createdChat?.chat?.UUID ||
+            createdChat?.chat?.uuid;
+
+        if (chatUUID) {
+            wsClient.openChat(chatUUID);
+        }
+
+        showNotification('Чат создан');
+    } catch (error) {
+        console.error('Ошибка создания чата:', error);
+        showNotification(error?.message || 'Не удалось создать чат');
+    } finally {
+        if (createChatBtn) {
+            createChatBtn.disabled = false;
+            createChatBtn.textContent = 'Создать';
+        }
+    }
+}
+
 // --- WEBSOCKET ---
 function setupWebSocketHandlers() {
     wsClient.on('chatsUpdate', (chats) => { renderChats(chats); });
     wsClient.on('chatOpened', (messages) => { renderMessages(messages); });
     wsClient.on('moreMessages', (oldMessages) => { renderMessages(oldMessages, true); });
-    wsClient.on('newMessage', (message) => { addMessage(message); });
+    wsClient.on('newMessage', (messages) => {
+        for (let message of messages){
+            addMessage(message);
+        }
+    });
 
     wsClient.on('messageConfirmed', (data) => {
         updateMessage(data.localUUID, { UUID: data.realUUID, isPending: false });
@@ -264,3 +359,4 @@ document.addEventListener('input', (e) => {
 });
 
 console.log('🚀 Cool Messenger загружен!');
+

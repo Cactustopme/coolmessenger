@@ -107,18 +107,68 @@ class WebSocketClient {
     }
 
     handleMessage(data) {
-        if (data.type === 'PING') {
-            this.send({ type: 'PONG', timestamp: Date.now() });
+        // PING от сервера
+        //if (data.type === 'PING') {
+        //this.send({
+        //type: 'PONG',
+        //timestamp: Date.now()
+        //});
+        //return;
+        //}
+
+        console.log(data)
+
+        // Список чатов (массив)
+        if (data.type === "CHAT_ARRAY_APPEND" || data.type === "CHAT_ARRAY_REPLACE") {
+            this.trigger('chatsUpdate', data.chats);
             return;
         }
-        if (Array.isArray(data)) { this.trigger('chatsUpdate', data); return; }
-        if (data.messages && data.result !== undefined) { this.trigger('chatOpened', data.messages); return; }
-        if (data.messages && data.messages.length > 0 && !data.result) { this.trigger('moreMessages', data.messages); return; }
-        if (data.localUUID && data.realUUID) { this.trigger('messageConfirmed', data); return; }
-        if (data.action === 'SEND_MESSAGE' && data.message) { this.trigger('newMessage', data.message); return; }
-        if (data.action === 'DELETE' && data.messageUUID) { this.trigger('messageDeleted', data); return; }
-        if (data.action === 'EDIT' && data.messageUUID) { this.trigger('messageEdited', data); return; }
-        if (data.result) { this.trigger('result', data); return; }
+
+        // Открытие чата (сообщения + результат)
+        if (data.type === "MESSAGE_ARRAY" && data.source === "CHAT_OPENED") {
+            console.log("Chat opened!!!")
+            this.trigger('chatOpened', data.messages);
+            return;
+        }
+
+        // Старые сообщения (при прокрутке)
+        if (data.type === "MESSAGE_ARRAY" && data.source === "OLD_MESSAGES_REQUESTED") {
+            this.trigger('moreMessages', data.messages);
+            return;
+        }
+
+        // Подтверждение localUUID -> realUUID
+        if (data.type === "INCOMING_MESSAGE_CONFIRMED") {
+            this.trigger('messageConfirmed', data);
+            return;
+        }
+
+        // Новое сообщение
+        if (data.type === "MESSAGE_ARRAY" && data.source === "MESSAGE_SENT_BY_CHAT_MEMBER") {
+            console.log("Message received!")
+            this.trigger('newMessage', data.messages);
+            return;
+        }
+
+        // Удаление сообщения
+        if (data.action === 'DELETE' && data.messageUUID) {
+            this.trigger('messageDeleted', data);
+            return;
+        }
+
+        // Редактирование сообщения
+        if (data.action === 'EDIT' && data.messageUUID) {
+            this.trigger('messageEdited', data);
+            return;
+        }
+
+        // Результат операции
+        if (data.result) {
+            console.log('Результат операции:', data);
+            this.trigger('result', data);
+            return;
+        }
+
         console.log('⚠️ Неизвестное сообщение от сервера:', data);
     }
 

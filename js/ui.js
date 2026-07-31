@@ -1,7 +1,7 @@
 import { escapeHTML, formatTime, generateUUID } from './utils.js';
 import { getUsername, getSession, clearSession, getUUID } from './auth.js';
 import { wsClient } from './websocket.js';
-import { newDirectChat, newGroupChat, searchUser } from './api.js';
+import {getThisUserData, newDirectChat, newGroupChat, searchUser} from './api.js';
 
 let elements = {};
 
@@ -49,32 +49,78 @@ export function showChatPage() {
 // --- Рендер чатов ---
 export function renderChats(chats) {
     if (!elements.chatList) return;
+
+    Array.from(elements.chatList.childNodes).forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+            node.remove();
+            return;
+        }
+
+        if (
+            node.nodeType === Node.ELEMENT_NODE &&
+            !node.classList.contains('chat-item')
+        ) {
+            node.remove();
+        }
+    });
+
     if (!chats || chats.length === 0) {
-        elements.chatList.innerHTML = `<div class="empty-state"><p>Нет чатов</p></div>`;
+        if (!elements.chatList.querySelector('.chat-item')) {
+            elements.chatList.innerHTML = `<div class="empty-state"><p>Нет чатов</p></div>`;
+        }
         return;
     }
-    let html = '';
+
     chats.forEach(chat => {
         const lastMsg = chat.lastMessage ? escapeHTML(chat.lastMessage) : 'Нет сообщений';
         const time = chat.lastMessageTimeSent ? formatTime(chat.lastMessageTimeSent) : '';
-        const avatarLetter = (chat.name || '?')[0].toUpperCase();
-        html += `
-            <div class="chat-item" data-uuid="${chat.UUID}">
-                <div class="chat-avatar">${avatarLetter}</div>
+
+        let chatName = '';
+
+        if (!chat.isGroupChat) {
+            for (const member of chat.members || []) {
+                if (member !== getUsername()) {
+                    chatName = member;
+                    break;
+                }
+            }
+        } else {
+            chatName = chat.name || '';
+        }
+
+        const avatarLetter = (chatName || chat.name || '?')[0].toUpperCase();
+
+        const template = document.createElement('template');
+        template.innerHTML = `
+            <div class="chat-item" data-uuid="${escapeHTML(chat.UUID)}">
+                <div class="chat-avatar">${escapeHTML(avatarLetter)}</div>
                 <div class="chat-info">
-                    <div class="chat-name">${escapeHTML(chat.name || 'Без названия')}</div>
+                    <div class="chat-name">${escapeHTML(chatName)}</div>
                     <div class="chat-last">${lastMsg}</div>
                 </div>
                 <div class="chat-time">${time}</div>
             </div>
         `;
-    });
-    elements.chatList.innerHTML = html;
-    elements.chatList.querySelectorAll('.chat-item').forEach(el => {
-        el.addEventListener('click', () => {
-            const uuid = el.dataset.uuid;
-            selectChat(uuid);
+
+        const newChatElement = template.content.firstElementChild;
+
+        newChatElement.addEventListener('click', () => {
+            selectChat(chat.UUID);
         });
+
+        if (chat.UUID === currentChatUUID) {
+            newChatElement.classList.add('active');
+        }
+
+        const existingChatElement = elements.chatList.querySelector(
+            `.chat-item[data-uuid="${CSS.escape(chat.UUID)}"]`
+        );
+
+        if (existingChatElement) {
+            existingChatElement.replaceWith(newChatElement);
+        } else {
+            elements.chatList.appendChild(newChatElement);
+        }
     });
 }
 
@@ -134,6 +180,8 @@ export function updateMessage(uuid, newData) {
 }
 
 function createMessageElement(message) {
+    console.log("Message 2-> ", message.content)
+
     const div = document.createElement('div');
     const isMine = message.sentBy === 'me' || message.sentBy === getUUID();
     div.className = `message ${isMine ? 'message-sent' : 'message-received'}`;
@@ -169,15 +217,15 @@ let modalListenersAdded = false;
 
 export function showNewChatModal() {
     const modal = document.getElementById('newChatModal');
-    if (!modal) return;
-    modal.style.display = 'flex';
-    document.getElementById('chatNameInput').value = '';
-    document.getElementById('chatTargetInput').value = '';
-    document.getElementById('chatTypeSelect').value = 'direct';
-    toggleChatFields();
-    if (!modalListenersAdded) {
-        addModalListeners();
-        modalListenersAdded = true;
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+export function hideNewChatModal() {
+    const modal = document.getElementById('newChatModal');
+    if (modal) {
+        modal.style.display = 'none';
     }
 }
 
@@ -229,7 +277,7 @@ async function handleCreateChat() {
 }
 
 // --- Уведомления (вместо alert) ---
-function showNotification(text, type = 'info') {
+export function showNotification(text, type = 'info') {
     const colors = { success: '#22c55e', error: '#ef4444', info: '#6c63ff' };
     const div = document.createElement('div');
     div.style.cssText = `
@@ -249,7 +297,6 @@ function showNotification(text, type = 'info') {
         setTimeout(() => div.remove(), 300);
     }, 3000);
 }
-
 // --- Выход ---
 export function logout() {
     wsClient.disconnect();
@@ -285,35 +332,16 @@ export function setupSearch() {
         if (e.key === 'Enter') doSearch();
     });
 }
+export function showLoginError(message) {
+    const el = elements.loginError;
+    el.textContent = message;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
 
-// --- Уведомления (вместо alert) ---
-export function showNotification(text, type = 'info') {
-    const colors = {
-        success: '#22c55e',
-        error: '#ef4444',
-        info: '#6c63ff'
-    };
-    const div = document.createElement('div');
-    div.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: ${colors[type] || colors.info};
-        color: white;
-        padding: 12px 24px;
-        border-radius: 10px;
-        font-weight: 500;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        z-index: 9999;
-        animation: fadeIn 0.3s ease;
-        max-width: 400px;
-        transition: opacity 0.3s;
-    `;
-    div.textContent = text;
-    document.body.appendChild(div);
-
-    setTimeout(() => {
-        div.style.opacity = '0';
-        setTimeout(() => div.remove(), 400);
-    }, 3000);
+export function showSignupError(message) {
+    const el = elements.signupError;
+    el.textContent = message;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
 }

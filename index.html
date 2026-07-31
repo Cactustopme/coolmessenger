@@ -124,6 +124,7 @@
             <button class="menu-item" id="menuProfile">👤 Профиль</button>
             <button class="menu-item" id="menuTheme">🎨 Тема</button>
             <button class="menu-item" id="menuLogout">🚪 Выйти</button>
+            <button id="menuNewChat" class="menu-item">＋ Новый чат</button>
         </div>
     </div>
 </div>
@@ -148,8 +149,14 @@
                 <input type="text" id="chatNameInput" placeholder="Введите название" />
             </div>
             <div class="form-group" id="chatTargetGroup">
-                <label for="chatTargetInput">UUID пользователя (для личного чата)</label>
-                <input type="text" id="chatTargetInput" placeholder="Введите UUID друга" />
+                <label for="directUsername">Username пользователя</label>
+                <input
+                        type="text"
+                        id="directUsername"
+                        name="directUsername"
+                        placeholder="Введите username"
+                        required
+                />
             </div>
         </div>
         <div class="modal-footer">

@@ -9,8 +9,11 @@ async function request(endpoint, options = {}) {
         'Content-Type': 'application/json',
         ...options.headers
     };
+
+    console.log(options.body)
+
     const sessionID = getSessionID();
-    if (sessionID) headers['Authorization'] = sessionID;
+    if (sessionID) headers['Authorization'] = "Bearer " + sessionID;
 
     const response = await fetch(url, { ...options, headers });
     let data;
@@ -44,10 +47,10 @@ export async function appLogin(uuid, token) {
     });
 }
 
-export async function newDirectChat(name, targetUUID) {
+export async function newDirectChat(targetUUID) {
     return await request('/new_direct_chat', {
         method: 'POST',
-        body: JSON.stringify({ name, targetUUID })
+        body: JSON.stringify({targetUUID })
     });
 }
 
