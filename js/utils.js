@@ -7,14 +7,39 @@ export function generateUUID() {
         });
 }
 
+function getBrowserLocales(options = {}) {
+    const defaultOptions = {
+        languageCodeOnly: false,
+    };
+    const opt = {
+        ...defaultOptions,
+        ...options,
+    };
+    const browserLocales =
+        navigator.languages === undefined
+            ? [navigator.language]
+            : navigator.languages;
+    if (!browserLocales) {
+        return undefined;
+    }
+    return browserLocales.map(locale => {
+        const trimmedLocale = locale.trim();
+        return opt.languageCodeOnly
+            ? trimmedLocale.split(/[-_]/)[0]
+            : trimmedLocale;
+    });
+}
+
+const locales = getBrowserLocales();
+
 export function formatTime(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString(locales[0], { hour: '2-digit', minute: '2-digit' });
 }
 
 export function formatFullDate(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleString(locales[0], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 export function escapeHTML(text) {

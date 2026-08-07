@@ -13,7 +13,7 @@ class WebSocketClient {
         this.handlers = {
             chatsUpdate: [], chatOpened: [], newMessage: [],
             messageConfirmed: [], messageDeleted: [], messageEdited: [],
-            connectionState: [], error: []
+            connectionState: [], error: [], result : [], moreMessages: []
         };
     }
 
@@ -133,6 +133,7 @@ class WebSocketClient {
 
         // Старые сообщения (при прокрутке)
         if (data.type === "MESSAGE_ARRAY" && data.source === "OLD_MESSAGES_REQUESTED") {
+            console.log("Old messages (1)")
             this.trigger('moreMessages', data.messages);
             return;
         }
@@ -189,11 +190,19 @@ class WebSocketClient {
                 try { handler(data); }
                 catch (e) { console.error(`Ошибка в обработчике ${event}:`, e); }
             });
+        } else {
+            console.error("No handler available for: " + event)
         }
     }
 
     openChat(chatUUID) { this.send({ action: 'OPEN_CHAT', UUID: chatUUID }); }
-    getMoreMessages() { this.send({ action: 'GET_MORE_OLD_MESSAGES' }); }
+
+    getMoreMessages(oldestMessageTime) {
+        this.send({
+            action: 'GET_MORE_OLD_MESSAGES',
+            oldestMessageTimestamp: oldestMessageTime
+        });
+    }
     sendMessage(content, timestamp, localUUID) {
         this.send({ action: 'SEND_MESSAGE', message: { content, timestamp, localUUID } });
     }

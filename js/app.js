@@ -5,6 +5,7 @@ import { wsClient } from './websocket.js';
 import {
     initUI, showLoginPage, showChatPage,
     renderChats, renderMessages, addMessage, updateMessage,
+    messages,
     selectChat, setupInfiniteScroll,
     showNewChatModal, logout,
     showLoginError, showSignupError, setupSearch, showNotification, hideNewChatModal
@@ -14,7 +15,6 @@ import { initMenu } from './menu.js';
 document.addEventListener('DOMContentLoaded', () => {
     initUI();
     setupEventListeners();
-    setupInfiniteScroll();
     setupWebSocketHandlers();
     setupSearch();
     initMenu();
@@ -71,6 +71,10 @@ function setupEventListeners() {
     
     document.getElementById("chatTypeSelect")?.addEventListener("change", updateNewChatModalFields);
     updateNewChatModalFields();
+    setupInfiniteScroll(async () => {
+        let earliestMessage = messages.at(0)
+        wsClient.getMoreMessages(earliestMessage.timestamp)
+    });
 }
 
 // --- ЛОГИН ---
@@ -304,7 +308,10 @@ async function handleCreateChat(event) {
 function setupWebSocketHandlers() {
     wsClient.on('chatsUpdate', (chats) => { renderChats(chats); });
     wsClient.on('chatOpened', (messages) => { renderMessages(messages); });
-    wsClient.on('moreMessages', (oldMessages) => { renderMessages(oldMessages, true); });
+    wsClient.on('moreMessages', (oldMessages) => {
+        console.log("Old messages (2)");
+        renderMessages(oldMessages, true); }
+    );
     wsClient.on('newMessage', (messages) => {
         for (let message of messages){
             addMessage(message);
@@ -312,6 +319,7 @@ function setupWebSocketHandlers() {
     });
 
     wsClient.on('messageConfirmed', (data) => {
+        console.log("messageConfirmed (2)");
         updateMessage(data.localUUID, { UUID: data.realUUID, isPending: false });
     });
 

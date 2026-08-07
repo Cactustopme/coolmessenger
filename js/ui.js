@@ -126,7 +126,7 @@ export function renderChats(chats) {
 
 // --- Выбор чата ---
 let currentChatUUID = null;
-let messages = [];
+export let messages = [];
 let isLoadingMore = false;
 
 export function selectChat(chatUUID) {
@@ -146,10 +146,12 @@ export function renderMessages(msgs, append = false) {
         messages = msgs || [];
         elements.messageContainer.innerHTML = '';
     } else {
+        console.log(msgs);
         messages = [...msgs, ...messages];
+        console.log(messages);
     }
     const fragment = document.createDocumentFragment();
-    messages.forEach(msg => {
+    msgs.forEach(msg => {
         const el = createMessageElement(msg);
         fragment.appendChild(el);
     });
@@ -180,8 +182,6 @@ export function updateMessage(uuid, newData) {
 }
 
 function createMessageElement(message) {
-    console.log("Message 2-> ", message.content)
-
     const div = document.createElement('div');
     const isMine = message.sentBy === 'me' || message.sentBy === getUUID();
     div.className = `message ${isMine ? 'message-sent' : 'message-received'}`;
@@ -198,18 +198,61 @@ function createMessageElement(message) {
 
 // --- Бесконечный скролл ---
 let lastScrollTime = 0;
-export function setupInfiniteScroll() {
-    elements.messageContainer.addEventListener('scroll', () => {
-        if (elements.messageContainer.scrollTop === 0 && !isLoadingMore) {
-            const now = Date.now();
-            if (now - lastScrollTime >= 1000) {
-                lastScrollTime = now;
-                isLoadingMore = true;
-                wsClient.getMoreMessages();
-                setTimeout(() => { isLoadingMore = false; }, 2000);
-            }
+export function setupInfiniteScroll(loadOlderMessages) {
+    const messagesContainer = document.querySelector('.chat-messages');
+
+    if (!messagesContainer) {
+        return;
+    }
+
+    const THRESHOLD_PX = 200;
+
+    let isLoading = false;
+    let hasMoreMessages = true;
+    let waitUntilLeaveTopZone = false;
+
+    messagesContainer.addEventListener('scroll', async () => {
+        const nearTop = messagesContainer.scrollTop <= THRESHOLD_PX;
+
+        // Если после прошлой загрузки пользователь ушёл ниже порога —
+        // разрешаем следующую загрузку при новом подходе к верху
+        if (!nearTop && waitUntilLeaveTopZone) {
+            waitUntilLeaveTopZone = false;
         }
-    });
+
+        if (
+            !nearTop ||
+            isLoading ||
+            !hasMoreMessages ||
+            waitUntilLeaveTopZone
+        ) {
+            return;
+        }
+
+        isLoading = true;
+
+        const previousScrollHeight = messagesContainer.scrollHeight;
+        const previousScrollTop = messagesContainer.scrollTop;
+
+        try {
+            await loadOlderMessages();
+
+            requestAnimationFrame(() => {
+                const newScrollHeight = messagesContainer.scrollHeight;
+                const heightDiff = newScrollHeight - previousScrollHeight;
+
+                // Сохраняем текущую визуальную позицию пользователя
+                messagesContainer.scrollTop = previousScrollTop + heightDiff;
+
+                // Запрещаем повторную загрузку, пока пользователь не прокрутит вниз
+                waitUntilLeaveTopZone = true;
+            });
+        } catch (error) {
+            console.error('Ошибка загрузки старых сообщений:', error);
+        } finally {
+            isLoading = false;
+        }
+    }, {passive: true});
 }
 
 // --- Модальное окно создания чата ---
