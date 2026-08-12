@@ -4,6 +4,7 @@ import { wsClient } from './websocket.js';
 import {getThisUserData, newDirectChat, newGroupChat, searchUser} from './api.js';
 
 let elements = {};
+export let chatsList = [];
 
 export function initUI() {
     elements = {
@@ -48,6 +49,7 @@ export function showChatPage() {
 
 // --- Рендер чатов ---
 export function renderChats(chats) {
+    chatsList = chats || [];
     if (!elements.chatList) return;
 
     Array.from(elements.chatList.childNodes).forEach(node => {
@@ -166,11 +168,64 @@ export function renderMessages(msgs, append = false) {
     }
 }
 
-export function addMessage(message) {
-    messages.push(message);
-    const el = createMessageElement(message);
-    elements.messageContainer.appendChild(el);
-    elements.messageContainer.scrollTop = elements.messageContainer.scrollHeight;
+export function addMessage(message, chatUUID = null) {
+    // Если чат сообщения неизвестен — считаем, что это открытый чат
+    const targetChatUUID = chatUUID || currentChatUUID;
+
+    if (targetChatUUID === currentChatUUID) {
+        messages.push(message);
+        const el = createMessageElement(message);
+        elements.messageContainer.appendChild(el);
+        elements.messageContainer.scrollTop = elements.messageContainer.scrollHeight;
+    }
+
+    updateChatLastMessage(targetChatUUID, message);
+}
+
+// --- Последнее сообщение в списке чатов ---
+export function updateChatLastMessage(chatUUID, message) {
+    if (!chatUUID || !message) return;
+
+    // Update in-memory chats list
+    if (Array.isArray(chatsList)) {
+        const idx = chatsList.findIndex(c => c.UUID === chatUUID);
+        if (idx !== -1) {
+            chatsList[idx].lastMessage = message.content || chatsList[idx].lastMessage;
+            chatsList[idx].lastMessageTimeSent = message.timestamp || chatsList[idx].lastMessageTimeSent;
+        } else {
+            // Insert a minimal placeholder so the chat appears in the list
+            chatsList.unshift({
+                UUID: chatUUID,
+                name: '',
+                lastMessage: message.content || '',
+                lastMessageTimeSent: message.timestamp || null,
+                members: [],
+                isGroupChat: false
+            });
+        }
+    }
+
+    if (!elements.chatList) return;
+
+    const chatElement = elements.chatList.querySelector(
+        `.chat-item[data-uuid="${CSS.escape(chatUUID)}"]`
+    );
+
+    if (!chatElement) {
+        // If DOM entry is missing, re-render the chats list so it appears
+        renderChats(chatsList);
+        return;
+    }
+
+    const lastEl = chatElement.querySelector('.chat-last');
+    if (lastEl) {
+        lastEl.textContent = message.content || 'Нет сообщений';
+    }
+
+    const timeEl = chatElement.querySelector('.chat-time');
+    if (timeEl) {
+        timeEl.textContent = message.timestamp ? formatTime(message.timestamp) : '';
+    }
 }
 
 export function updateMessage(uuid, newData) {
