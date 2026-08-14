@@ -128,7 +128,8 @@ export function renderChats(chats) {
 
 // --- Выбор чата ---
 let currentChatUUID = null;
-export let messages = [];
+export let messages = {}; // hash table keyed by UUID
+export let messagesOrder = []; // ordered UUIDs (oldest-first)
 let isLoadingMore = false;
 
 export function selectChat(chatUUID) {
@@ -144,19 +145,38 @@ export function selectChat(chatUUID) {
 
 // --- Рендер сообщений ---
 export function renderMessages(msgs, append = false) {
+    // msgs is expected to be an array in display order (oldest-first)
+    if (!Array.isArray(msgs)) msgs = [];
+
     if (!append) {
-        messages = msgs || [];
+        // Replace current messages
+        messages = {};
+        messagesOrder = [];
+        msgs.forEach(m => {
+            if (m && m.UUID) {
+                messages[m.UUID] = m;
+                messagesOrder.push(m.UUID);
+            }
+        });
         elements.messageContainer.innerHTML = '';
     } else {
-        console.log(msgs);
-        messages = [...msgs, ...messages];
-        console.log(messages);
+        // Prepend older messages (msgs are older than existing)
+        const newUUIDs = [];
+        msgs.forEach(m => {
+            if (m && m.UUID && !messages[m.UUID]) {
+                messages[m.UUID] = m;
+                newUUIDs.push(m.UUID);
+            }
+        });
+        messagesOrder = [...newUUIDs, ...messagesOrder];
     }
+
     const fragment = document.createDocumentFragment();
     msgs.forEach(msg => {
         const el = createMessageElement(msg);
         fragment.appendChild(el);
     });
+
     if (!append) {
         elements.messageContainer.innerHTML = '';
         elements.messageContainer.appendChild(fragment);
@@ -169,11 +189,18 @@ export function renderMessages(msgs, append = false) {
 }
 
 export function addMessage(message, chatUUID = null) {
-    // Если чат сообщения неизвестен — считаем, что это открытый чат
     const targetChatUUID = chatUUID || currentChatUUID;
 
+    if (!message || !message.UUID) return;
+
     if (targetChatUUID === currentChatUUID) {
-        messages.push(message);
+        // Append to end (newest)
+        if (!messages[message.UUID]) {
+            messages[message.UUID] = message;
+            messagesOrder.push(message.UUID);
+        } else {
+            messages[message.UUID] = { ...messages[message.UUID], ...message };
+        }
         const el = createMessageElement(message);
         elements.messageContainer.appendChild(el);
         elements.messageContainer.scrollTop = elements.messageContainer.scrollHeight;
@@ -229,13 +256,18 @@ export function updateChatLastMessage(chatUUID, message) {
 }
 
 export function updateMessage(uuid, newData) {
-    const index = messages.findIndex(m => m.UUID === uuid);
-    if (index !== -1) {
-        messages[index] = { ...messages[index], ...newData };
-        renderMessages(messages);
-    }
+    if (!uuid || !messages[uuid]) return;
+    messages[uuid] = { ...messages[uuid], ...newData };
+    // Re-render messages preserving order
+    const ordered = messagesOrder.map(id => messages[id]).filter(Boolean);
+    renderMessages(ordered);
 }
 
+export function getEarliestMessage() {
+    if (!messagesOrder || messagesOrder.length === 0) return null;
+    const id = messagesOrder[0];
+    return messages[id] || null;
+}
 function createMessageElement(message) {
     const div = document.createElement('div');
     const isMine = message.sentBy === 'me' || message.sentBy === getUUID();
@@ -401,7 +433,8 @@ export function logout() {
     clearSession();
     showLoginPage();
     currentChatUUID = null;
-    messages = [];
+    messages = {};
+    messagesOrder = [];
 }
 
 // --- Поиск пользователей ---

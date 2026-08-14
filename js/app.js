@@ -5,7 +5,7 @@ import { wsClient } from './websocket.js';
 import {
     initUI, showLoginPage, showChatPage,
     renderChats, renderMessages, addMessage, updateMessage,
-    messages,
+    getEarliestMessage,
     selectChat, setupInfiniteScroll,
     showNewChatModal, logout,
     showLoginError, showSignupError, setupSearch, showNotification, hideNewChatModal
@@ -72,8 +72,9 @@ function setupEventListeners() {
     document.getElementById("chatTypeSelect")?.addEventListener("change", updateNewChatModalFields);
     updateNewChatModalFields();
     setupInfiniteScroll(async () => {
-        let earliestMessage = messages.at(0)
-        wsClient.getMoreMessages(earliestMessage.timestamp)
+        const earliestMessage = getEarliestMessage();
+        const ts = earliestMessage ? earliestMessage.timestamp : null;
+        wsClient.getMoreMessages(ts);
     });
 }
 
@@ -304,17 +305,37 @@ async function handleCreateChat(event) {
     }
 }
 
+function pong(){
+    console.log("Sending Pong!!!")
+    wsClient.send({
+        action: 'PONG',
+        isActive: true,
+        isTyping : false,
+    })
+}
+
+// Сервер может присылать UUID чата под разными именами
+function extractChatUUID(data) {
+    return data?.chatUUID || data?.chatID || data?.chat?.UUID || null;
+}
+
 // --- WEBSOCKET ---
 function setupWebSocketHandlers() {
     wsClient.on('chatsUpdate', (chats) => { renderChats(chats); });
     wsClient.on('chatOpened', (messages) => { renderMessages(messages); });
+
+    wsClient.on('ping', (_) => {
+        pong()
+    })
+
     wsClient.on('moreMessages', (oldMessages) => {
         console.log("Old messages (2)");
         renderMessages(oldMessages, true); }
     );
-    wsClient.on('newMessage', (messages) => {
-        for (let message of messages){
-            addMessage(message);
+    wsClient.on('newMessage', (data) => {
+        const chatUUID = extractChatUUID(data);
+        for (let message of data.messages || []){
+            addMessage(message, chatUUID || extractChatUUID(message));
         }
     });
 
