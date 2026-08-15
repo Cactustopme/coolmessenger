@@ -13,7 +13,8 @@ class WebSocketClient {
         this.handlers = {
             chatsUpdate: [], chatOpened: [], newMessage: [],
             messageConfirmed: [], messageDeleted: [], messageEdited: [],
-            connectionState: [], error: [], result : [], moreMessages: []
+            connectionState: [], error: [], result : [], moreMessages: [],
+            ping: []
         };
     }
 
@@ -96,10 +97,10 @@ class WebSocketClient {
     }
 
     startPing() {
-        this.stopPing();
-        this.pingInterval = setInterval(() => {
-            if (this.isConnected) this.send({ type: 'PING' });
-        }, CONFIG.PING_INTERVAL || 30000);
+        //this.stopPing();
+        //this.pingInterval = setInterval(() => {
+            //if (this.isConnected) this.send({ type: 'PING' });
+        //}, CONFIG.PING_INTERVAL || 30000);
     }
 
     stopPing() {
@@ -107,14 +108,10 @@ class WebSocketClient {
     }
 
     handleMessage(data) {
-        // PING от сервера
-        //if (data.type === 'PING') {
-        //this.send({
-        //type: 'PONG',
-        //timestamp: Date.now()
-        //});
-        //return;
-        //}
+        if (data.type === 'PING') {
+            this.trigger('ping', null)
+            return;
+        }
 
         console.log(data)
 
@@ -147,7 +144,7 @@ class WebSocketClient {
         // Новое сообщение
         if (data.type === "MESSAGE_ARRAY" && data.source === "MESSAGE_SENT_BY_CHAT_MEMBER") {
             console.log("Message received!")
-            this.trigger('newMessage', data.messages);
+            this.trigger('newMessage', data);
             return;
         }
 
