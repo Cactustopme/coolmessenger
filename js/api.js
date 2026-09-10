@@ -10,19 +10,23 @@ async function request(endpoint, options = {}) {
         ...options.headers
     };
 
-    console.log(options.body)
-
     const sessionID = getSessionID();
-    if (sessionID) headers['Authorization'] = "Bearer " + sessionID;
+    if (sessionID) {
+        headers['Authorization'] = sessionID;
+    }
 
     const response = await fetch(url, { ...options, headers });
     let data;
-    try { data = await response.json(); }
-    catch { throw new Error('Неверный ответ от сервера'); }
+    try {
+        data = await response.json();
+    } catch {
+        throw new Error('Неверный ответ от сервера');
+    }
 
-    if (data.result && data.result !== 'SUCCESS') {
+    if (data && typeof data === 'object' && 'result' in data && data.result && data.result !== 'SUCCESS') {
         throw new Error(data.result);
     }
+
     return data;
 }
 
@@ -40,17 +44,21 @@ export async function userLogin(username, password) {
     });
 }
 
-export async function appLogin(uuid, token) {
-    return await request('/applogin', {
+export async function isSessionValid() {
+    return await request('/is_session_valid', { method: 'GET' });
+}
+
+export async function refreshSession(deviceID, refreshToken) {
+    return await request('/refresh_session', {
         method: 'POST',
-        body: JSON.stringify({ UUID: uuid, token })
+        body: JSON.stringify({ deviceID, refreshToken })
     });
 }
 
 export async function newDirectChat(targetUUID) {
     return await request('/new_direct_chat', {
         method: 'POST',
-        body: JSON.stringify({targetUUID })
+        body: JSON.stringify({ targetUUID })
     });
 }
 

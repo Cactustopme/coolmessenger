@@ -290,3 +290,65 @@
         max-width: 85%;
     }
 }
+
+/* Profile Page */
+.profile-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #FAFBFC;
+    padding: 20px;
+}
+
+.profile-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--white);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 40px 20px;
+}
+
+.profile-content {
+    text-align: center;
+    max-width: 400px;
+}
+
+.profile-avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: var(--primary-light);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 48px;
+    flex-shrink: 0;
+    margin: 0 auto 24px;
+    box-shadow: 0 4px 12px rgba(108, 99, 255, 0.25);
+}
+
+.profile-info {
+    text-align: center;
+}
+
+.profile-username {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 16px 0;
+}
+
+.profile-email,
+.profile-phone,
+.profile-uuid {
+    font-size: 15px;
+    color: var(--text-light);
+    margin: 8px 0;
+    word-break: break-all;
+    font-family: 'Courier New', monospace;
+}

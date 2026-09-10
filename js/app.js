@@ -1,9 +1,26 @@
 import { CONFIG } from './config.js';
-import {signup, userLogin, appLogin, getThisUserData, newDirectChat, newGroupChat, searchUser} from './api.js';
-import { saveSession, loadSession, clearSession, getUUID, isAuthenticated } from './auth.js';
+import {
+    signup,
+    userLogin,
+    isSessionValid,
+    refreshSession,
+    getThisUserData,
+    newDirectChat,
+    newGroupChat,
+    searchUser
+} from './api.js';
+import {
+    saveSession,
+    loadSession,
+    clearSession,
+    getUUID,
+    getSession,
+    isAuthenticated,
+    loadCredentials
+} from './auth.js';
 import { wsClient } from './websocket.js';
 import {
-    initUI, showLoginPage, showChatPage,
+    initUI, showLoginPage, showChatPage, showProfilePage, hideProfilePage,
     renderChats, renderMessages, addMessage, updateMessage,
     getEarliestMessage,
     selectChat, setupInfiniteScroll,
@@ -13,26 +30,112 @@ import {
 import { initMenu } from './menu.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('[DOMContentLoaded] Приложение загружается...');
     initUI();
     setupEventListeners();
     setupWebSocketHandlers();
     setupSearch();
     initMenu();
 
-    if (loadSession() && isAuthenticated()) {
+    console.log('[DOMContentLoaded] Проверяю sessionStorage...');
+    const sessionLoaded = loadSession();
+    const isAuth = isAuthenticated();
+    console.log('[DOMContentLoaded] loadSession():', sessionLoaded, 'isAuthenticated():', isAuth);
+     
+    if (sessionLoaded && isAuth) {
+        console.log('✓ Восстановление сессии из sessionStorage');
         restoreSession();
     } else {
-        showLoginPage();
+        console.log('[DOMContentLoaded] sessionStorage пуст, проверяю localStorage...');
+        // Check for stored credentials (UUID + Token) for auto-login
+        const creds = loadCredentials();
+        console.log('[DOMContentLoaded] Результат loadCredentials():', creds ? 'найдено' : 'не найдено');
+         
+        if (creds && (creds.uuid || creds.sessionID || creds.refreshToken)) {
+            console.log('✓ Найдены сохраненные учетные данные, выполняю автовход...');
+            autoLogin(creds.uuid, creds.token, creds.refreshToken, creds.deviceID);
+        } else {
+            console.log('✗ Учетные данные не найдены, показываю форму входа');
+            showLoginPage();
+        }
     }
 });
 
+async function refreshSessionIfNeeded() {
+    const current = getSession();
+    if (!current.refreshToken || !current.deviceID) {
+        return false;
+    }
+
+    if (current.sessionID) {
+        const valid = await isSessionValid();
+        if (valid === true) {
+            return true;
+        }
+    }
+
+    const refreshed = await refreshSession(current.deviceID, current.refreshToken);
+    if (refreshed.result !== 'SUCCESS') {
+        throw new Error(refreshed.result || 'SESSION_INVALID');
+    }
+
+    saveSession({
+        uuid: current.uuid,
+        token: current.token,
+        sessionID: refreshed.sessionID,
+        refreshToken: refreshed.refreshToken,
+        deviceID: current.deviceID,
+        username: current.username
+    });
+
+    return true;
+}
+
 async function restoreSession() {
     try {
+        const valid = await refreshSessionIfNeeded();
+        if (!valid) {
+            throw new Error('No session available');
+        }
         await getThisUserData();
         wsClient.connect();
         showChatPage();
     } catch (error) {
-        console.warn('Сессия недействительна, требуется вход');
+        console.warn('Сессия недействительна, требуется повторный вход');
+        clearSession();
+        showLoginPage();
+    }
+}
+
+async function autoLogin(uuid, token, refreshToken = null, deviceID = null) {
+    try {
+        const currentSession = getSession();
+        if (!currentSession.sessionID && refreshToken && deviceID) {
+            saveSession({ uuid, token, sessionID: null, refreshToken, deviceID, username: null });
+        }
+
+        const isValid = await refreshSessionIfNeeded();
+        if (!isValid) {
+            throw new Error('Нет активной сессии');
+        }
+
+        const userData = await getThisUserData();
+        if (userData && userData.result === 'SUCCESS') {
+            saveSession({
+                uuid: currentSession.uuid || uuid,
+                token: currentSession.token || token,
+                sessionID: getSession().sessionID,
+                refreshToken: getSession().refreshToken,
+                deviceID: getSession().deviceID,
+                username: userData.username
+            });
+        }
+
+        wsClient.connect();
+        showChatPage();
+        console.log('✓ Автовход успешен!');
+    } catch (error) {
+        console.error('✗ Ошибка автовхода:', error);
         clearSession();
         showLoginPage();
     }
@@ -68,7 +171,7 @@ function setupEventListeners() {
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
 
     document.getElementById('newChatBtn')?.addEventListener('click', showNewChatModal);
-    
+     
     document.getElementById("chatTypeSelect")?.addEventListener("change", updateNewChatModalFields);
     updateNewChatModalFields();
     setupInfiniteScroll(async () => {
@@ -76,6 +179,12 @@ function setupEventListeners() {
         const ts = earliestMessage ? earliestMessage.timestamp : null;
         wsClient.getMoreMessages(ts);
     });
+
+    // Profile page buttons
+    document.getElementById('backFromProfileBtn')?.addEventListener('click', () => {
+        hideProfilePage();
+    });
+    document.getElementById('logoutFromProfileBtn')?.addEventListener('click', logout);
 }
 
 // --- ЛОГИН ---
@@ -106,18 +215,26 @@ async function handleLogin(e) {
             return;
         }
 
-        const appResult = await appLogin(loginResult.UUID, loginResult.token);
-        if (appResult.result !== 'SUCCESS') {
-            showLoginError(appResult.result || 'Ошибка создания сессии');
-            return;
-        }
-
-        saveSession(loginResult.UUID, loginResult.token, appResult.sessionID, null);
+        saveSession({
+            uuid: loginResult.UUID,
+            token: loginResult.token || null,
+            sessionID: loginResult.session,
+            refreshToken: loginResult.refreshToken,
+            deviceID: loginResult.deviceID,
+            username: null
+        });
 
         try {
             const userData = await getThisUserData();
-            if (userData.result === 'SUCCESS') {
-                saveSession(loginResult.UUID, loginResult.token, appResult.sessionID, userData.username);
+            if (userData && userData.result === 'SUCCESS') {
+                saveSession({
+                    uuid: loginResult.UUID,
+                    token: loginResult.token || null,
+                    sessionID: loginResult.session,
+                    refreshToken: loginResult.refreshToken,
+                    deviceID: loginResult.deviceID,
+                    username: userData.username
+                });
             }
         } catch (e) {
             console.warn('Не удалось получить данные пользователя');
@@ -129,7 +246,7 @@ async function handleLogin(e) {
         passwordInput.value = '';
     } catch (error) {
         console.error('Ошибка входа:', error);
-        showLoginError('Ошибка соединения с сервером');
+        showLoginError(error?.message || 'Ошибка соединения с сервером');
     }
 }
 
@@ -178,24 +295,30 @@ async function handleSignup(e) {
             return;
         }
 
+        saveSession({
+            uuid: result.UUID,
+            token: result.token || null,
+            sessionID: result.session,
+            refreshToken: result.refreshToken,
+            deviceID: result.deviceID,
+            username
+        });
+
         showNotification('✅ Регистрация успешна! Теперь войдите.', 'success');
 
-        // Переключаем на форму логина
         document.querySelectorAll('.auth-box').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.auth-box')[0].style.display = 'block';
 
-        // Подставляем логин
         document.getElementById('loginUsername').value = username;
         document.getElementById('loginPassword').value = '';
 
-        // Очищаем форму регистрации
         emailInput.value = '';
         usernameInput.value = '';
         passwordInput.value = '';
         phoneInput.value = '';
     } catch (error) {
         console.error('Ошибка регистрации:', error);
-        showSignupError('Ошибка соединения с сервером');
+        showSignupError(error?.message || 'Ошибка соединения с сервером');
     }
 }
 
@@ -368,7 +491,40 @@ function setupWebSocketHandlers() {
         showNotification('⚠️ Ошибка соединения', 'error');
     });
 
-    wsClient.on('result', (data) => {
+    wsClient.on('result', async (data) => {
+        if (data.result === 'SESSION_INVALID') {
+            const current = getSession();
+            if (!current.refreshToken || !current.deviceID) {
+                clearSession();
+                showLoginPage();
+                return;
+            }
+
+            try {
+                const refreshed = await refreshSession(current.deviceID, current.refreshToken);
+                if (refreshed.result === 'SUCCESS') {
+                    saveSession({
+                        uuid: current.uuid,
+                        token: current.token,
+                        sessionID: refreshed.sessionID,
+                        refreshToken: refreshed.refreshToken,
+                        deviceID: current.deviceID,
+                        username: current.username
+                    });
+                    wsClient.disconnect();
+                    wsClient.connect();
+                    showNotification('🔄 Сессия обновлена', 'success');
+                    return;
+                }
+            } catch (error) {
+                console.error('Ошибка обновления сессии после SESSION_INVALID:', error);
+            }
+
+            clearSession();
+            showLoginPage();
+            return;
+        }
+
         if (data.result === 'SUCCESS') {
             console.log('Операция успешна');
         } else {

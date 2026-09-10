@@ -10,6 +10,7 @@ export function initUI() {
     elements = {
         loginPage: document.getElementById('loginPage'),
         chatPage: document.getElementById('chatPage'),
+        profilePage: document.getElementById('profilePage'),
         chatList: document.getElementById('chatList'),
         messageContainer: document.getElementById('messageContainer'),
         messageInput: document.getElementById('messageInput'),
@@ -39,11 +40,44 @@ export function showLoginPage() {
 export function showChatPage() {
     elements.loginPage.classList.remove('active');
     elements.loginPage.style.display = 'none';
+    elements.profilePage.style.display = 'none';
     elements.chatPage.style.display = 'flex';
     elements.chatPage.style.flexDirection = 'column';
     const username = getUsername();
     if (username) {
         elements.userStatus.textContent = `👤 ${username}`;
+    }
+}
+
+export function showProfilePage() {
+    elements.chatPage.style.display = 'none';
+    elements.profilePage.style.display = 'flex';
+    elements.profilePage.style.flexDirection = 'column';
+}
+
+export function hideProfilePage() {
+    elements.profilePage.style.display = 'none';
+    elements.chatPage.style.display = 'flex';
+    elements.chatPage.style.flexDirection = 'column';
+}
+
+export async function displayUserProfile(userData) {
+    try {
+        const username = userData.username || 'Неизвестно';
+        const email = userData.email || 'Не указано';
+        const phone = userData.phone || 'Не указано';
+        const uuid = userData.UUID || 'Неизвестно';
+
+        document.getElementById('profileUsername').textContent = username;
+        document.getElementById('profileEmail').textContent = `📧 ${email}`;
+        document.getElementById('profilePhone').textContent = `☎️ ${phone}`;
+        document.getElementById('profileUUID').textContent = `🆔 ${uuid}`;
+
+        const avatarLetter = (username || '?')[0].toUpperCase();
+        document.getElementById('profileAvatar').textContent = avatarLetter;
+    } catch (error) {
+        console.error('Ошибка отображения профиля:', error);
+        showNotification('Ошибка загрузки профиля', 'error');
     }
 }
 
