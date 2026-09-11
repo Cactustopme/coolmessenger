@@ -5,6 +5,7 @@ class WebSocketClient {
     constructor() {
         this.ws = null;
         this.isConnected = false;
+        this.shouldReconnect = true;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
         this.reconnectTimeout = null;
@@ -14,12 +15,13 @@ class WebSocketClient {
             chatsUpdate: [], chatOpened: [], newMessage: [],
             messageConfirmed: [], messageDeleted: [], messageEdited: [],
             connectionState: [], error: [], result : [], moreMessages: [],
-            ping: []
+            ping: [], sessionExpired: []
         };
     }
 
     connect() {
         if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
+        this.shouldReconnect = true;
         const sessionID = getSessionID();
         if (!sessionID) {
             console.error('Нет sessionID для подключения');
@@ -32,7 +34,11 @@ class WebSocketClient {
                 console.log('✅ WebSocket подключен');
                 this.isConnected = true;
                 this.reconnectAttempts = 0;
-                this.send({ action: 'CONFIRM', sessionID });
+                console.log('[WS][AUTH] Отправка CONFIRM с текущей sessionID', {
+                    hasSessionID: Boolean(sessionID)
+                });
+                const confirmSent = this.send({ action: 'CONFIRM', sessionID });
+                console.log('[WS][AUTH] CONFIRM отправлен:', confirmSent);
                 this.startPing();
                 this.flushQueue();
                 this.trigger('connectionState', true);
@@ -47,10 +53,13 @@ class WebSocketClient {
             };
             this.ws.onclose = () => {
                 console.log('❌ WebSocket отключен');
+                console.log('[WS][AUTH] Соединение закрыто', {
+                    reconnectEnabled: this.shouldReconnect
+                });
                 this.isConnected = false;
                 this.stopPing();
                 this.trigger('connectionState', false);
-                this.reconnect();
+                if (this.shouldReconnect) this.reconnect();
             };
             this.ws.onerror = (error) => {
                 console.error('WebSocket ошибка:', error);
@@ -110,6 +119,12 @@ class WebSocketClient {
     handleMessage(data) {
         if (data.type === 'PING') {
             this.trigger('ping', null)
+            return;
+        }
+
+        if (data.type === 'SESSION_EXPIRED') {
+            console.warn('[WS][AUTH] Получено SESSION_EXPIRED от сервера');
+            this.trigger('sessionExpired', data);
             return;
         }
 
@@ -206,11 +221,34 @@ class WebSocketClient {
     deleteMessage(messageUUID) { this.send({ action: 'DELETE', messageUUID }); }
     editMessage(messageUUID, newText) { this.send({ action: 'EDIT', messageUUID, newText }); }
     disconnect() {
+        this.shouldReconnect = false;
         this.stopPing();
         if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
         if (this.ws) { this.ws.close(); this.ws = null; }
         this.isConnected = false;
         this.messageQueue = [];
+    }
+
+    reconnectWithSession() {
+        console.log('[WS][AUTH] Переподключение с обновленной сессией начато');
+        this.shouldReconnect = false;
+        this.stopPing();
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
+
+        const oldSocket = this.ws;
+        this.ws = null;
+        this.isConnected = false;
+        if (oldSocket && oldSocket.readyState !== WebSocket.CLOSED) {
+            console.log('[WS][AUTH] Закрываю старое WebSocket-соединение');
+            oldSocket.onclose = null;
+            oldSocket.close();
+        }
+
+        console.log('[WS][AUTH] Создаю новое WebSocket-соединение');
+        this.connect();
     }
     getStatus() {
         if (!this.ws) return 'disconnected';

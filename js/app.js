@@ -14,9 +14,7 @@ import {
     loadSession,
     clearSession,
     getUUID,
-    getSession,
-    isAuthenticated,
-    loadCredentials
+    getSession
 } from './auth.js';
 import { wsClient } from './websocket.js';
 import {
@@ -29,6 +27,9 @@ import {
 } from './ui.js';
 import { initMenu } from './menu.js';
 
+let sessionRefreshPromise = null;
+let sessionExpiredPromise = null;
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[DOMContentLoaded] Приложение загружается...');
     initUI();
@@ -37,62 +38,80 @@ document.addEventListener('DOMContentLoaded', () => {
     setupSearch();
     initMenu();
 
-    console.log('[DOMContentLoaded] Проверяю sessionStorage...');
-    const sessionLoaded = loadSession();
-    const isAuth = isAuthenticated();
-    console.log('[DOMContentLoaded] loadSession():', sessionLoaded, 'isAuthenticated():', isAuth);
-     
-    if (sessionLoaded && isAuth) {
-        console.log('✓ Восстановление сессии из sessionStorage');
+    if (loadSession()) {
+        console.log('✓ Найдены данные авторизации в cookies, проверяю сессию...');
+        document.getElementById('loginPage').style.display = 'none';
         restoreSession();
     } else {
-        console.log('[DOMContentLoaded] sessionStorage пуст, проверяю localStorage...');
-        // Check for stored credentials (UUID + Token) for auto-login
-        const creds = loadCredentials();
-        console.log('[DOMContentLoaded] Результат loadCredentials():', creds ? 'найдено' : 'не найдено');
-         
-        if (creds && (creds.uuid || creds.sessionID || creds.refreshToken)) {
-            console.log('✓ Найдены сохраненные учетные данные, выполняю автовход...');
-            autoLogin(creds.uuid, creds.token, creds.refreshToken, creds.deviceID);
-        } else {
-            console.log('✗ Учетные данные не найдены, показываю форму входа');
-            showLoginPage();
-        }
+        showLoginPage();
     }
 });
 
 async function refreshSessionIfNeeded() {
     const current = getSession();
-    if (!current.refreshToken || !current.deviceID) {
-        return false;
-    }
+    console.log('[AUTH] Проверка сессии начата', {
+        hasSessionID: Boolean(current.sessionID),
+        hasRefreshToken: Boolean(current.refreshToken),
+        hasDeviceID: Boolean(current.deviceID)
+    });
 
     if (current.sessionID) {
-        const valid = await isSessionValid();
-        if (valid === true) {
-            return true;
+        try {
+            const valid = await isSessionValid();
+            console.log('[AUTH] /is_session_valid ответ:', valid);
+            if (valid === true) {
+                console.log('[AUTH] Сессия действительна, обновление не требуется');
+                return true;
+            }
+            console.warn('[AUTH] Сессия недействительна, требуется обновление');
+        } catch (error) {
+            console.error('[AUTH] Ошибка проверки сессии:', error);
         }
     }
 
-    const refreshed = await refreshSession(current.deviceID, current.refreshToken);
-    if (refreshed.result !== 'SUCCESS') {
-        throw new Error(refreshed.result || 'SESSION_INVALID');
+    if (!current.refreshToken || !current.deviceID) {
+        console.error('[AUTH] Невозможно обновить сессию: отсутствует refreshToken или deviceID');
+        return false;
     }
 
-    saveSession({
-        uuid: current.uuid,
-        token: current.token,
-        sessionID: refreshed.sessionID,
-        refreshToken: refreshed.refreshToken,
-        deviceID: current.deviceID,
-        username: current.username
-    });
+    try {
+        console.log('[AUTH] Отправка запроса /refresh_session');
+        const refreshed = await refreshSession(current.deviceID, current.refreshToken);
+        console.log('[AUTH] /refresh_session ответ:', {
+            result: refreshed?.result,
+            hasSessionID: Boolean(refreshed?.sessionID),
+            hasRefreshToken: Boolean(refreshed?.refreshToken)
+        });
 
-    return true;
+
+        if (refreshed.result !== 'SUCCESS' && refreshed.result) {
+            throw new Error(refreshed.result || 'SESSION_INVALID');
+        }
+
+        if (!refreshed.sessionID || !refreshed.refreshToken) {
+            throw new Error('Некорректный ответ /refresh_session: отсутствует sessionID или refreshToken');
+        }
+
+        saveSession({
+            uuid: current.uuid,
+            token: current.token,
+            sessionID: refreshed.sessionID,
+            refreshToken: refreshed.refreshToken,
+            deviceID: current.deviceID,
+            username: current.username
+        });
+
+        console.log('[AUTH] Сессия успешно обновлена, cookies заменены новыми данными');
+        return true;
+    } catch (error) {
+        console.error('[AUTH] Ошибка обновления сессии:', error);
+        throw error;
+    }
 }
 
 async function restoreSession() {
     try {
+        console.log('[AUTH] Восстановление сессии при загрузке страницы');
         const valid = await refreshSessionIfNeeded();
         if (!valid) {
             throw new Error('No session available');
@@ -100,45 +119,89 @@ async function restoreSession() {
         await getThisUserData();
         wsClient.connect();
         showChatPage();
+        console.log('[AUTH] Сессия восстановлена, WebSocket подключается');
     } catch (error) {
-        console.warn('Сессия недействительна, требуется повторный вход');
+        console.error('[AUTH] Не удалось восстановить сессию, требуется повторный вход:', error);
         clearSession();
         showLoginPage();
     }
 }
 
-async function autoLogin(uuid, token, refreshToken = null, deviceID = null) {
-    try {
-        const currentSession = getSession();
-        if (!currentSession.sessionID && refreshToken && deviceID) {
-            saveSession({ uuid, token, sessionID: null, refreshToken, deviceID, username: null });
-        }
-
-        const isValid = await refreshSessionIfNeeded();
-        if (!isValid) {
-            throw new Error('Нет активной сессии');
-        }
-
-        const userData = await getThisUserData();
-        if (userData && userData.result === 'SUCCESS') {
-            saveSession({
-                uuid: currentSession.uuid || uuid,
-                token: currentSession.token || token,
-                sessionID: getSession().sessionID,
-                refreshToken: getSession().refreshToken,
-                deviceID: getSession().deviceID,
-                username: userData.username
-            });
-        }
-
-        wsClient.connect();
-        showChatPage();
-        console.log('✓ Автовход успешен!');
-    } catch (error) {
-        console.error('✗ Ошибка автовхода:', error);
-        clearSession();
-        showLoginPage();
+async function refreshActiveSession(reason) {
+    if (sessionRefreshPromise) {
+        console.log(`[AUTH] Обновление сессии уже выполняется, ожидаю текущий запрос (${reason})`);
+        return sessionRefreshPromise;
     }
+
+    sessionRefreshPromise = (async () => {
+        const current = getSession();
+        console.log(`[AUTH] Начало обновления сессии (${reason})`, {
+            hasOldSessionID: Boolean(current.sessionID),
+            hasOldRefreshToken: Boolean(current.refreshToken),
+            hasDeviceID: Boolean(current.deviceID)
+        });
+        if (!current.refreshToken || !current.deviceID) {
+            throw new Error(`Невозможно обновить сессию после ${reason}: отсутствует refreshToken или deviceID`);
+        }
+
+        console.log(`[AUTH] Отправляю /refresh_session (${reason})`);
+        const refreshed = await refreshSession(current.deviceID, current.refreshToken);
+        console.log(`[AUTH] Получен ответ /refresh_session (${reason})`, {
+            result: refreshed?.result,
+            hasNewSessionID: Boolean(refreshed?.sessionID),
+            hasNewRefreshToken: Boolean(refreshed?.refreshToken),
+            refreshTokenChanged: Boolean(refreshed?.refreshToken) && refreshed.refreshToken !== current.refreshToken
+        });
+        if (refreshed?.result && refreshed.result !== 'SUCCESS') {
+            throw new Error(refreshed.result);
+        }
+        if (!refreshed?.sessionID || !refreshed?.refreshToken) {
+            throw new Error('Некорректный ответ /refresh_session: отсутствует sessionID или refreshToken');
+        }
+
+        saveSession({
+            uuid: current.uuid,
+            token: current.token,
+            sessionID: refreshed.sessionID,
+            refreshToken: refreshed.refreshToken,
+            deviceID: current.deviceID,
+            username: current.username
+        });
+        const saved = getSession();
+        console.log(`[AUTH] Новая сессия сохранена (${reason})`, {
+            sessionIDChanged: saved.sessionID !== current.sessionID,
+            refreshTokenChanged: saved.refreshToken !== current.refreshToken,
+            hasSavedRefreshToken: Boolean(saved.refreshToken)
+        });
+        return true;
+    })().finally(() => {
+        sessionRefreshPromise = null;
+    });
+
+    return sessionRefreshPromise;
+}
+
+async function handleSessionExpired() {
+    if (sessionExpiredPromise) return sessionExpiredPromise;
+
+    sessionExpiredPromise = (async () => {
+        try {
+            console.log('[WS][AUTH] Начинаю обработку SESSION_EXPIRED');
+            await refreshActiveSession('SESSION_EXPIRED');
+            console.log('[WS][AUTH] Сессия обновлена, запускаю переподключение WebSocket');
+            wsClient.reconnectWithSession();
+            showNotification('🔄 Сессия обновлена', 'success');
+        } catch (error) {
+            console.error('[AUTH] Не удалось обновить истёкшую сессию:', error);
+            clearSession();
+            wsClient.disconnect();
+            showLoginPage();
+        }
+    })().finally(() => {
+        sessionExpiredPromise = null;
+    });
+
+    return sessionExpiredPromise;
 }
 
 function setupEventListeners() {
@@ -450,6 +513,9 @@ function setupWebSocketHandlers() {
     wsClient.on('ping', (_) => {
         pong()
     })
+    wsClient.on('sessionExpired', async () => {
+        await handleSessionExpired();
+    });
 
     wsClient.on('moreMessages', (oldMessages) => {
         console.log("Old messages (2)");
@@ -493,26 +559,11 @@ function setupWebSocketHandlers() {
 
     wsClient.on('result', async (data) => {
         if (data.result === 'SESSION_INVALID') {
-            const current = getSession();
-            if (!current.refreshToken || !current.deviceID) {
-                clearSession();
-                showLoginPage();
-                return;
-            }
-
+            console.warn('[AUTH] WebSocket сообщил SESSION_INVALID, запускаю обновление сессии');
             try {
-                const refreshed = await refreshSession(current.deviceID, current.refreshToken);
-                if (refreshed.result === 'SUCCESS') {
-                    saveSession({
-                        uuid: current.uuid,
-                        token: current.token,
-                        sessionID: refreshed.sessionID,
-                        refreshToken: refreshed.refreshToken,
-                        deviceID: current.deviceID,
-                        username: current.username
-                    });
-                    wsClient.disconnect();
-                    wsClient.connect();
+                await refreshActiveSession('SESSION_INVALID');
+                if (wsClient.reconnectWithSession) {
+                    wsClient.reconnectWithSession();
                     showNotification('🔄 Сессия обновлена', 'success');
                     return;
                 }
@@ -544,4 +595,3 @@ document.addEventListener('input', (e) => {
 });
 
 console.log('🚀 Cool Messenger загружен!');
-

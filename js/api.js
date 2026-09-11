@@ -10,7 +10,12 @@ async function request(endpoint, options = {}) {
         ...options.headers
     };
 
-    const sessionID = getSessionID();
+    const requiresSession = ![
+        '/userlogin',
+        '/signup',
+        '/refresh_session'
+    ].includes(endpoint);
+    const sessionID = requiresSession ? getSessionID() : null;
     if (sessionID) {
         headers['Authorization'] = sessionID;
     }

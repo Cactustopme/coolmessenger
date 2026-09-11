@@ -7,50 +7,78 @@ let sessionData = {
     username: null
 };
 
-const PERSISTENT_AUTH_KEY = 'messenger_auth';
-const LEGACY_CREDS_KEY = 'messenger_credentials';
-const TEMP_SESSION_KEY = 'messenger_session';
+const COOKIE_PREFIX = 'coolmessenger_';
+const SESSION_MAX_AGE = 20 * 60;
+const REFRESH_MAX_AGE = 30 * 24 * 60 * 60;
+
+function cookieOptions(maxAge) {
+    const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+    return `Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+}
+
+function setCookie(name, value, maxAge) {
+    if (value === null || value === undefined || value === '') {
+        document.cookie = `${COOKIE_PREFIX}${name}=; Path=/; Max-Age=0; SameSite=Lax`;
+        return;
+    }
+
+    document.cookie = `${COOKIE_PREFIX}${name}=${encodeURIComponent(value)}; ${cookieOptions(maxAge)}`;
+}
+
+function getCookie(name) {
+    const prefix = `${COOKIE_PREFIX}${name}=`;
+    const cookie = document.cookie
+        .split('; ')
+        .find(value => value.startsWith(prefix));
+
+    if (!cookie) return null;
+
+    try {
+        return decodeURIComponent(cookie.slice(prefix.length));
+    } catch (error) {
+        console.warn(`[AUTH] Не удалось прочитать cookie ${name}`, error);
+        return null;
+    }
+}
+
+function deleteCookie(name) {
+    setCookie(name, null, 0);
+}
 
 export function saveCredentials(uuid, token, refreshToken = null, deviceID = null) {
-    try {
-        const authData = {
-            uuid,
-            token,
-            refreshToken,
-            deviceID,
-            sessionID: sessionData.sessionID,
-            username: sessionData.username
-        };
-        localStorage.setItem(PERSISTENT_AUTH_KEY, JSON.stringify(authData));
-        localStorage.setItem(LEGACY_CREDS_KEY, JSON.stringify({ uuid, token }));
-    } catch (e) { console.warn('Не удалось сохранить учетные данные:', e); }
+    setCookie('uuid', uuid, REFRESH_MAX_AGE);
+    setCookie('token', token, REFRESH_MAX_AGE);
+    setCookie('refreshToken', refreshToken, REFRESH_MAX_AGE);
+    setCookie('deviceID', deviceID, REFRESH_MAX_AGE);
 }
 
 export function loadCredentials() {
-    try {
-        const saved = localStorage.getItem(PERSISTENT_AUTH_KEY) || localStorage.getItem(LEGACY_CREDS_KEY);
-        if (saved) {
-            const creds = JSON.parse(saved);
-            if (creds && typeof creds === 'object') {
-                return {
-                    uuid: creds.uuid ?? null,
-                    token: creds.token ?? null,
-                    refreshToken: creds.refreshToken ?? null,
-                    deviceID: creds.deviceID ?? null,
-                    sessionID: creds.sessionID ?? null,
-                    username: creds.username ?? null
-                };
-            }
-        }
-    } catch (e) { console.warn('Не удалось загрузить учетные данные:', e); }
-    return null;
+    const refreshToken = getCookie('refreshToken');
+    const deviceID = getCookie('deviceID');
+
+    if (!refreshToken && !deviceID && !getCookie('sessionID')) {
+        return null;
+    }
+
+    return {
+        uuid: getCookie('uuid'),
+        token: getCookie('token'),
+        refreshToken,
+        deviceID,
+        sessionID: getCookie('sessionID'),
+        username: getCookie('username')
+    };
 }
 
 export function clearCredentials() {
-    try {
-        localStorage.removeItem(PERSISTENT_AUTH_KEY);
-        localStorage.removeItem(LEGACY_CREDS_KEY);
-    } catch (e) { console.warn('Не удалось очистить учетные данные:', e); }
+    [
+        'uuid',
+        'token',
+        'sessionID',
+        'refreshToken',
+        'deviceID',
+        'username'
+    ].forEach(deleteCookie);
 }
 
 export function saveSession(payloadOrUuid, tokenOrSessionID, sessionIDOrUsername, username) {
@@ -72,38 +100,46 @@ export function saveSession(payloadOrUuid, tokenOrSessionID, sessionIDOrUsername
         username: data.username ?? null
     };
 
-    if (sessionData.uuid || sessionData.refreshToken || sessionData.deviceID || sessionData.sessionID) {
-        saveCredentials(sessionData.uuid, sessionData.token, sessionData.refreshToken, sessionData.deviceID);
-    }
+    console.log('[AUTH] Сохраняю данные сессии', {
+        hasSessionID: Boolean(sessionData.sessionID),
+        hasRefreshToken: Boolean(sessionData.refreshToken),
+        hasDeviceID: Boolean(sessionData.deviceID),
+        refreshTokenChanged: sessionData.refreshToken !== getCookie('refreshToken')
+    });
 
-    try {
-        sessionStorage.setItem(TEMP_SESSION_KEY, JSON.stringify({
-            sessionID: sessionData.sessionID,
-            username: sessionData.username
-        }));
-    } catch (e) { console.warn('Не удалось сохранить сессию:', e); }
+    setCookie('uuid', sessionData.uuid, REFRESH_MAX_AGE);
+    setCookie('token', sessionData.token, REFRESH_MAX_AGE);
+    setCookie('sessionID', sessionData.sessionID, SESSION_MAX_AGE);
+    setCookie('refreshToken', sessionData.refreshToken, REFRESH_MAX_AGE);
+    setCookie('deviceID', sessionData.deviceID, REFRESH_MAX_AGE);
+    setCookie('username', sessionData.username, SESSION_MAX_AGE);
+
+    console.log('[AUTH] Cookies сессии обновлены', {
+        hasSessionCookie: Boolean(getCookie('sessionID')),
+        hasRefreshTokenCookie: Boolean(getCookie('refreshToken')),
+        refreshTokenSaved: getCookie('refreshToken') === sessionData.refreshToken
+    });
 }
 
 export function loadSession() {
-    try {
-        const saved = sessionStorage.getItem(TEMP_SESSION_KEY);
-        if (saved) {
-            const tempData = JSON.parse(saved);
-            const creds = loadCredentials();
-            if (creds) {
-                sessionData = {
-                    uuid: creds.uuid ?? null,
-                    token: creds.token ?? null,
-                    sessionID: tempData.sessionID ?? creds.sessionID ?? null,
-                    refreshToken: creds.refreshToken ?? null,
-                    deviceID: creds.deviceID ?? null,
-                    username: tempData.username ?? creds.username ?? null
-                };
-                return true;
-            }
-        }
-    } catch (e) { console.warn('Не удалось загрузить сессию:', e); }
-    return false;
+    const saved = loadCredentials();
+    if (!saved) {
+        return false;
+    }
+
+    sessionData = {
+        uuid: saved.uuid,
+        token: saved.token,
+        sessionID: saved.sessionID,
+        refreshToken: saved.refreshToken,
+        deviceID: saved.deviceID,
+        username: saved.username
+    };
+
+    return Boolean(
+        sessionData.sessionID ||
+        (sessionData.refreshToken && sessionData.deviceID)
+    );
 }
 
 export function getSession() { return sessionData; }
@@ -123,9 +159,9 @@ export function clearSession() {
         deviceID: null,
         username: null
     };
-    try { sessionStorage.removeItem(TEMP_SESSION_KEY); }
-    catch (e) { console.warn('Не удалось очистить сессию:', e); }
     clearCredentials();
 }
 
-export function isAuthenticated() { return !!sessionData.sessionID; }
+export function isAuthenticated() {
+    return Boolean(sessionData.sessionID);
+}
