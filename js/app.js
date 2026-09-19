@@ -188,7 +188,7 @@ async function handleSessionExpired() {
         try {
             console.log('[WS][AUTH] Начинаю обработку SESSION_EXPIRED');
             await refreshActiveSession('SESSION_EXPIRED');
-            console.log('[WS][AUTH] Сессия обновлена, запускаю переподключение WebSocket');
+            console.log('[WS][AUTH] Сессия обновлена, ожидаю закрытия WebSocket сервером');
             wsClient.reconnectWithSession();
             showNotification('🔄 Сессия обновлена', 'success');
         } catch (error) {

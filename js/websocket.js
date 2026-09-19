@@ -230,24 +230,21 @@ class WebSocketClient {
     }
 
     reconnectWithSession() {
-        console.log('[WS][AUTH] Переподключение с обновленной сессией начато');
-        this.shouldReconnect = false;
-        this.stopPing();
+        this.shouldReconnect = true;
+
+        if (this.ws && (
+            this.ws.readyState === WebSocket.OPEN ||
+            this.ws.readyState === WebSocket.CONNECTING
+        )) {
+            console.log('[WS][AUTH] Сессия обновлена, ожидаю закрытия WebSocket сервером');
+            return;
+        }
+
+        console.log('[WS][AUTH] WebSocket уже закрыт, подключаюсь с обновленной сессией');
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
         }
-
-        const oldSocket = this.ws;
-        this.ws = null;
-        this.isConnected = false;
-        if (oldSocket && oldSocket.readyState !== WebSocket.CLOSED) {
-            console.log('[WS][AUTH] Закрываю старое WebSocket-соединение');
-            oldSocket.onclose = null;
-            oldSocket.close();
-        }
-
-        console.log('[WS][AUTH] Создаю новое WebSocket-соединение');
         this.connect();
     }
     getStatus() {
