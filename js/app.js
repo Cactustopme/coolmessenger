@@ -23,12 +23,53 @@ import {
     getEarliestMessage,
     selectChat, setupInfiniteScroll,
     showNewChatModal, logout,
-    showLoginError, showSignupError, setupSearch, showNotification, hideNewChatModal
+    showLoginError, showSignupError, setupSearch, showNotification, hideNewChatModal,
+    updateChatHeaderConnection, updateOtherUserStatus
 } from './ui.js';
 import { initMenu } from './menu.js';
 
 let sessionRefreshPromise = null;
 let sessionExpiredPromise = null;
+let typingTimeout = null;
+let isTyping = false;
+
+function isCurrentTabActive() {
+    return document.visibilityState === 'visible' && document.hasFocus();
+}
+
+function sendCurrentUserStatus(active = isCurrentTabActive()) {
+    const status = {
+        action: 'STATUS_CHANGED',
+        active,
+        typing: active && isTyping
+    };
+
+    if (!getUUID() || !wsClient.isConnected) {
+        console.info('[STATUS][SEND] Статус не отправлен', {
+            hasUserID: Boolean(getUUID()),
+            connected: wsClient.isConnected,
+            active: status.active,
+            typing: status.typing
+        });
+        return;
+    }
+
+    const sent = wsClient.send(status);
+    console.info('[STATUS][SEND] Отправлен статус текущего пользователя', {
+        active: status.active,
+        typing: status.typing,
+        sent
+    });
+}
+
+function updateTypingStatus(typing) {
+    const active = isCurrentTabActive();
+    const nextTyping = active && typing;
+    if (isTyping === nextTyping) return;
+
+    isTyping = nextTyping;
+    sendCurrentUserStatus();
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[DOMContentLoaded] Приложение загружается...');
@@ -116,7 +157,15 @@ async function restoreSession() {
         if (!valid) {
             throw new Error('No session available');
         }
-        await getThisUserData();
+        const userData = await getThisUserData();
+        if (!userData?.username) {
+            throw new Error('В ответе /get_this_user_data отсутствует username');
+        }
+        const current = getSession();
+        saveSession({
+            ...current,
+            username: userData.username
+        });
         wsClient.connect();
         showChatPage();
         console.log('[AUTH] Сессия восстановлена, WebSocket подключается');
@@ -229,6 +278,13 @@ function setupEventListeners() {
             e.preventDefault();
             handleSendMessage();
         }
+    });
+    document.getElementById('messageInput')?.addEventListener('blur', () => {
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+            typingTimeout = null;
+        }
+        updateTypingStatus(false);
     });
 
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
@@ -405,6 +461,11 @@ function handleSendMessage() {
 
     input.value = '';
     input.style.height = 'auto';
+    if (typingTimeout) {
+        clearTimeout(typingTimeout);
+        typingTimeout = null;
+    }
+    updateTypingStatus(false);
 }
 
 // --- НОВЫЙ ЧАТ ---
@@ -509,6 +570,10 @@ function extractChatUUID(data) {
 function setupWebSocketHandlers() {
     wsClient.on('chatsUpdate', (chats) => { renderChats(chats); });
     wsClient.on('chatOpened', (messages) => { renderMessages(messages); });
+    wsClient.on('userStatusChanged', (status) => {
+        console.info('[STATUS][APP] Получено обновление статуса от WebSocket', status);
+        updateOtherUserStatus(status);
+    });
 
     wsClient.on('ping', (_) => {
         pong()
@@ -542,6 +607,10 @@ function setupWebSocketHandlers() {
     });
 
     wsClient.on('connectionState', (connected) => {
+        updateChatHeaderConnection(connected);
+        if (connected) {
+            sendCurrentUserStatus();
+        }
         const statusEl = document.getElementById('userStatus');
         if (connected) {
             statusEl.textContent = '🟢 Онлайн';
@@ -585,12 +654,45 @@ function setupWebSocketHandlers() {
     });
 }
 
-window.addEventListener('beforeunload', () => { wsClient.disconnect(); });
+function updateCurrentTabActivity() {
+    const active = isCurrentTabActive();
+    if (!active) {
+        isTyping = false;
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+            typingTimeout = null;
+        }
+    }
+    sendCurrentUserStatus(active);
+}
+
+window.addEventListener('beforeunload', () => {
+    isTyping = false;
+    sendCurrentUserStatus(false);
+    wsClient.disconnect();
+});
+
+document.addEventListener('visibilitychange', updateCurrentTabActivity);
+window.addEventListener('blur', updateCurrentTabActivity);
+window.addEventListener('focus', updateCurrentTabActivity);
 
 document.addEventListener('input', (e) => {
     if (e.target.id === 'messageInput') {
         e.target.style.height = 'auto';
         e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+
+        const typing = Boolean(e.target.value.trim());
+        updateTypingStatus(typing);
+        if (typing) {
+            if (typingTimeout) clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                typingTimeout = null;
+                updateTypingStatus(false);
+            }, 3000);
+        } else if (typingTimeout) {
+            clearTimeout(typingTimeout);
+            typingTimeout = null;
+        }
     }
 });
 

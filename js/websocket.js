@@ -7,7 +7,7 @@ class WebSocketClient {
         this.isConnected = false;
         this.shouldReconnect = true;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10;
+        this.maxReconnectAttempts = CONFIG.MAX_RECONNECT_ATTEMPTS_BEFORE_REFRESH;
         this.reconnectTimeout = null;
         this.pingInterval = null;
         this.messageQueue = [];
@@ -15,7 +15,7 @@ class WebSocketClient {
             chatsUpdate: [], chatOpened: [], newMessage: [],
             messageConfirmed: [], messageDeleted: [], messageEdited: [],
             connectionState: [], error: [], result : [], moreMessages: [],
-            ping: [], sessionExpired: []
+            ping: [], sessionExpired: [], userStatusChanged: []
         };
     }
 
@@ -74,13 +74,13 @@ class WebSocketClient {
     reconnect() {
         if (this.reconnectTimeout) return;
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.error('❌ Превышено количество попыток переподключения');
-            this.trigger('error', new Error('Не удалось подключиться к серверу'));
+            console.warn('⚠️ Не удалось переподключиться, требуется обновление сессии');
+            this.trigger('sessionExpired', { reason: 'RECONNECT_ATTEMPTS_EXCEEDED' });
             return;
         }
         this.reconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 30000);
-        console.log(`🔄 Переподключение через ${Math.round(delay/1000)}с... (попытка ${this.reconnectAttempts})`);
+        const delay = CONFIG.RECONNECT_TIMEOUT;
+        console.log(`🔄 Переподключение через ${delay}мс... (попытка ${this.reconnectAttempts})`);
         this.reconnectTimeout = setTimeout(() => {
             this.reconnectTimeout = null;
             this.connect();
@@ -153,6 +153,17 @@ class WebSocketClient {
         // Подтверждение localUUID -> realUUID
         if (data.type === "INCOMING_MESSAGE_CONFIRMED") {
             this.trigger('messageConfirmed', data);
+            return;
+        }
+
+        if (data.type === 'USER_STATUS_CHANGED') {
+            console.info('[STATUS][RECEIVE] Получено обновление статуса', {
+                userID: data.userID || data.userId || data.userUUID || data.UUID || data.id,
+                active: data.active ?? data.member?.active ?? data.user?.active,
+                typing: data.typing ?? data.member?.typing ?? data.user?.typing,
+                data
+            });
+            this.trigger('userStatusChanged', data);
             return;
         }
 
@@ -230,22 +241,28 @@ class WebSocketClient {
     }
 
     reconnectWithSession() {
-        this.shouldReconnect = true;
-
         if (this.ws && (
             this.ws.readyState === WebSocket.OPEN ||
             this.ws.readyState === WebSocket.CONNECTING
         )) {
-            console.log('[WS][AUTH] Сессия обновлена, ожидаю закрытия WebSocket сервером');
-            return;
+            console.log('[WS][AUTH] Сессия обновлена, заменяю WebSocket');
+            this.shouldReconnect = false;
+            this.stopPing();
+            this.isConnected = false;
+            this.ws.close(4001, 'Session refreshed');
+            this.ws = null;
         }
 
-        console.log('[WS][AUTH] WebSocket уже закрыт, подключаюсь с обновленной сессией');
+        this.shouldReconnect = true;
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
         }
-        this.connect();
+        this.reconnectAttempts = 0;
+        this.reconnectTimeout = setTimeout(() => {
+            this.reconnectTimeout = null;
+            this.connect();
+        }, CONFIG.SESSION_RECONNECT_TIMEOUT);
     }
     getStatus() {
         if (!this.ws) return 'disconnected';

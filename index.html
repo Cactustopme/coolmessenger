@@ -15,7 +15,7 @@
     <div id="loginPage" class="page active">
         <div class="auth-container">
             <div class="auth-box">
-                <h1>💬 Cool Messenger</h1>
+                <h1>Cool Messenger</h1>
                 <h2>Вход в аккаунт</h2>
                 <form id="loginForm">
                     <div class="form-group">
@@ -35,7 +35,7 @@
             </div>
 
             <div class="auth-box" style="display:none;">
-                <h1>💬 Cool Messenger</h1>
+                <h1>Cool Messenger</h1>
                 <h2>Регистрация</h2>
                 <form id="signupForm">
                     <div class="form-group">
@@ -95,10 +95,9 @@
     <div id="chatPage" class="page" style="display:none;">
 
         <!-- Шапка -->
-        <header class="chat-header">
+        <header class="chat-header chat-page-header">
             <div class="header-left">
-                <button id="menuBtn" class="btn-icon" title="Меню">☰</button>
-                <h1 class="logo">💬 Cool Messenger</h1>
+                <h1 class="logo">Cool Messenger</h1>
             </div>
             <div class="header-right">
                 <span id="userStatus" class="status online">Онлайн</span>
@@ -110,12 +109,19 @@
 
             <!-- Сайдбар: 40% -->
             <aside class="chat-sidebar">
+                <div class="chat-sidebar-title">
+                    <h2>Чаты</h2>
+                    <button id="menuBtn" class="btn-icon menu-sidebar-btn" title="Меню">☰</button>
+                </div>
                 <div class="search-bar">
                     <input type="text" id="searchInput" placeholder="Поиск чатов и пользователей..." />
-                    <button id="searchBtn" class="btn-icon" title="Найти">🔍</button>
                 </div>
                 <div id="chatList" class="chat-list">
                     <div class="loading">Загрузка чатов...</div>
+                </div>
+                <div class="sidebar-security-note">
+                    <span>Ваши сообщения защищены сквозным шифрованием</span>
+                    <a href="https://youtu.be/dQw4w9WgXcQ?si=8oAirMROxLFEDC_s" target="_blank" rel="noopener noreferrer">Подробнее</a>
                 </div>
             </aside>
 
@@ -123,11 +129,17 @@
             <main class="chat-main">
                 <div class="chat-welcome" id="chatWelcome">
                     <div class="welcome-content">
-                        <h2>👋 Добро пожаловать!</h2>
+                        <h2>Добро пожаловать!</h2>
                         <p>Выберите чат слева, чтобы начать общение</p>
                     </div>
                 </div>
                 <div class="chat-window" id="chatWindow" style="display:none;">
+                    <div class="current-chat-bar">
+                        <div class="current-chat-heading">
+                            <span id="currentChatName">Соединение</span>
+                            <span id="currentChatStatus" class="current-chat-status" hidden></span>
+                        </div>
+                    </div>
                     <div class="chat-messages" id="messageContainer"></div>
                     <div class="chat-input">
                         <textarea id="messageInput" placeholder="Введите сообщение..." rows="1"></textarea>
@@ -141,7 +153,7 @@
 </div>
 
 <!-- ===== МОДАЛЬНОЕ ОКНО МЕНЮ ===== -->
-<div id="menuModal" class="modal" style="display:none;">
+<div id="menuModal" class="modal">
     <div class="modal-content" style="max-width:320px;">
         <div class="modal-header">
             <h2>⚙️ Меню</h2>

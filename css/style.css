@@ -5,9 +5,9 @@
 }
 
 :root {
-    --primary: #6C63FF;
-    --primary-dark: #5A52D5;
-    --primary-light: #8B83FF;
+    --primary: #6DC7FF;
+    --primary-dark: #4A9EEC;
+    --primary-light: #90D1F9;
     --bg: #F4F7FC;
     --white: #FFFFFF;
     --text: #1A1A2E;
@@ -131,26 +131,28 @@ input:focus, textarea:focus {
 /* Модальные окна */
 .modal {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.4);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    inset: 0;
+    background: rgba(17,17,17,0.18);
+    backdrop-filter: blur(2px);
+    display: none;
+    align-items: stretch;
+    justify-content: flex-start;
     z-index: 1000;
 }
 
+.modal.open {
+    display: flex;
+}
+
 .modal-content {
-    background: white;
-    border-radius: 16px;
-    max-width: 480px;
-    width: 90%;
-    padding: 24px 28px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
-    animation: modalFadeIn 0.25s ease;
+    background: rgba(255,255,255,0.95);
+    border-radius: 0 20px 20px 0;
+    max-width: 500px;
+    width: 100%;
+    height: 100%;
+    padding: 24px 20px;
+    box-shadow: 12px 0 40px rgba(17, 17, 17, 0.14);
+    animation: modalFadeIn 0.2s ease;
 }
 
 @keyframes modalFadeIn {

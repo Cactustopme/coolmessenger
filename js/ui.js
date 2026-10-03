@@ -25,6 +25,7 @@ export function initUI() {
         showLogin: document.getElementById('showLogin'),
         logoutBtn: document.getElementById('logoutBtn'),
         userStatus: document.getElementById('userStatus'),
+        currentChatStatus: document.getElementById('currentChatStatus'),
         newChatBtn: document.getElementById('newChatBtn'),
         searchInput: document.getElementById('searchInput'),
         searchBtn: document.getElementById('searchBtn'),
@@ -114,12 +115,8 @@ export function renderChats(chats) {
         let chatName = '';
 
         if (!chat.isGroupChat) {
-            for (const member of chat.members || []) {
-                if (member !== getUsername()) {
-                    chatName = member;
-                    break;
-                }
-            }
+            const member = getOtherChatMember(chat);
+            chatName = getMemberUsername(member) || chat.name || '';
         } else {
             chatName = chat.name || '';
         }
@@ -158,6 +155,10 @@ export function renderChats(chats) {
             elements.chatList.appendChild(newChatElement);
         }
     });
+
+    if (currentChatUUID) {
+        updateChatHeaderConnection(wsClient.isConnected);
+    }
 }
 
 // --- Выбор чата ---
@@ -165,6 +166,156 @@ let currentChatUUID = null;
 export let messages = {}; // hash table keyed by UUID
 export let messagesOrder = []; // ordered UUIDs (oldest-first)
 let isLoadingMore = false;
+const userStatuses = new Map();
+const chatStatuses = new Map();
+
+function getChatMembers(chat) {
+    return Array.isArray(chat?.members) ? chat.members : [];
+}
+
+function getMemberID(member) {
+    if (typeof member === 'string') {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(member)
+            ? member
+            : null;
+    }
+    return member?.id || member?.UUID || member?.uuid || member?.userID || null;
+}
+
+function normalizeUserID(id) {
+    return typeof id === 'string' ? id.toLowerCase() : null;
+}
+
+function getMemberUsername(member) {
+    return typeof member === 'string' ? member : member?.username || '';
+}
+
+function getOtherChatMember(chat) {
+    const members = getChatMembers(chat);
+    const currentUUID = normalizeUserID(getUUID());
+    const currentUsername = getUsername()?.toLowerCase();
+    return members.find(member => {
+        const id = normalizeUserID(getMemberID(member));
+        const username = getMemberUsername(member).toLowerCase();
+        return !(currentUUID && id === currentUUID) &&
+            !(currentUsername && username === currentUsername);
+    }) || members[0] || null;
+}
+
+function getMemberStatus(member, chat) {
+    const memberID = getMemberID(member);
+    const normalizedID = normalizeUserID(memberID);
+    if (normalizedID && userStatuses.has(normalizedID)) {
+        return userStatuses.get(normalizedID);
+    }
+
+    if (chat?.UUID && chatStatuses.has(chat.UUID)) {
+        return chatStatuses.get(chat.UUID);
+    }
+
+    if (typeof member === 'object' && member) {
+        return {
+            active: member.active === true,
+            typing: member.typing === true
+        };
+    }
+    return null;
+}
+
+function renderCurrentChatStatus(chat) {
+    const statusElement = elements.currentChatStatus;
+    if (!statusElement) return;
+
+    if (!chat || chat.isGroupChat) {
+        statusElement.hidden = true;
+        return;
+    }
+
+    const member = getOtherChatMember(chat);
+    const status = getMemberStatus(member, chat);
+    const active = status?.active === true;
+    console.info('[STATUS][RENDER] Отображён статус собеседника', {
+        memberID: getMemberID(member),
+        status,
+        active: status?.active,
+        typing: status?.typing
+    });
+    statusElement.textContent = status?.typing
+        ? 'Печатает...'
+        : active ? 'В сети' : 'Не в сети';
+    statusElement.className = `current-chat-status ${active ? 'online' : 'offline'}${status?.typing ? ' typing' : ''}`;
+    statusElement.hidden = false;
+}
+
+export function updateOtherUserStatus(status) {
+    const statusUser = status?.member || status?.user || {};
+    const userID = status?.userID || status?.userId || status?.userUUID ||
+        status?.UUID || status?.id || statusUser.id || statusUser.UUID || statusUser.userID;
+    const active = status?.active ?? statusUser.active;
+    const typing = status?.typing ?? statusUser.typing;
+    const normalizedID = normalizeUserID(userID);
+    if (!normalizedID || typeof active !== 'boolean' || typeof typing !== 'boolean') {
+        console.warn('[STATUS][APPLY] Не удалось разобрать обновление статуса', status);
+        return;
+    }
+    userStatuses.set(normalizedID, { active, typing });
+    const chat = chatsList.find(item => item.UUID === currentChatUUID);
+    if (!chat || chat.isGroupChat) {
+        console.info('[STATUS][APPLY] Статус сохранён, но личный чат не выбран', {
+            userID: normalizedID,
+            active,
+            typing
+        });
+        return;
+    }
+
+    const memberID = getMemberID(getOtherChatMember(chat));
+    if (memberID && normalizeUserID(memberID) !== normalizedID) {
+        console.info('[STATUS][APPLY] Обновление относится к другому пользователю', {
+            receivedUserID: normalizedID,
+            chatMemberID: normalizeUserID(memberID)
+        });
+        return;
+    }
+
+    if (!memberID) {
+        chatStatuses.set(chat.UUID, { active, typing });
+    }
+
+    console.info('[STATUS][APPLY] Статус собеседника обновлён', {
+        userID: normalizedID,
+        chatUUID: chat.UUID,
+        matchedBy: memberID ? 'userID' : 'current-chat-fallback',
+        active,
+        typing
+    });
+    renderCurrentChatStatus(chat);
+}
+
+export function updateChatHeaderConnection(connected) {
+    const header = document.querySelector('.current-chat-bar');
+    const nameElement = document.getElementById('currentChatName');
+    if (!header || !nameElement) return;
+
+    if (!connected) {
+        nameElement.textContent = 'Соединение';
+        header.classList.add('is-disconnected');
+        if (elements.currentChatStatus) {
+            elements.currentChatStatus.hidden = true;
+        }
+        return;
+    }
+    const chat = chatsList.find(item => item.UUID === currentChatUUID);
+    const chatName = chat
+        ? (chat.isGroupChat
+            ? chat.name
+            : getMemberUsername(getOtherChatMember(chat)) || chat.name)
+        : '';
+
+    nameElement.textContent = chatName || 'Чат';
+    header.classList.remove('is-disconnected');
+    renderCurrentChatStatus(chat);
+}
 
 export function selectChat(chatUUID) {
     currentChatUUID = chatUUID;
@@ -173,6 +324,7 @@ export function selectChat(chatUUID) {
     });
     elements.chatWelcome.style.display = 'none';
     elements.chatWindow.style.display = 'flex';
+    updateChatHeaderConnection(wsClient.isConnected);
     elements.messageContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
     wsClient.openChat(chatUUID);
 }
@@ -473,9 +625,8 @@ export function logout() {
 
 // --- Поиск пользователей ---
 export function setupSearch() {
-    const searchBtn = document.getElementById('searchBtn');
     const searchInput = document.getElementById('searchInput');
-    if (!searchBtn || !searchInput) return;
+    if (!searchInput) return;
 
     const doSearch = async () => {
         const username = searchInput.value.trim();
@@ -492,7 +643,6 @@ export function setupSearch() {
         }
     };
 
-    searchBtn.addEventListener('click', doSearch);
     searchInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') doSearch();
     });

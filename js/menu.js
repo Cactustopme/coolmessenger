@@ -8,10 +8,18 @@ export function initMenu() {
 
     if (!menuBtn || !menuModal) return;
 
-    menuBtn.addEventListener('click', () => { menuModal.style.display = 'flex'; });
-    closeMenuBtn.addEventListener('click', () => { menuModal.style.display = 'none'; });
+    const openMenu = () => {
+        menuModal.classList.add('open');
+    };
+
+    const closeMenu = () => {
+        menuModal.classList.remove('open');
+    };
+
+    menuBtn.addEventListener('click', openMenu);
+    closeMenuBtn?.addEventListener('click', closeMenu);
     menuModal.addEventListener('click', (e) => {
-        if (e.target === menuModal) menuModal.style.display = 'none';
+        if (e.target === menuModal) closeMenu();
     });
 
     document.getElementById('menuProfile')?.addEventListener('click', async () => {
@@ -27,16 +35,16 @@ export function initMenu() {
             console.error('Ошибка загрузки профиля:', error);
             alert('❌ Ошибка: ' + (error.message || 'Не удалось загрузить профиль'));
         }
-        menuModal.style.display = 'none';
+        closeMenu();
     });
     document.getElementById('menuTheme')?.addEventListener('click', () => {
         alert('🎨 Смена темы: скоро появится!');
-        menuModal.style.display = 'none';
+        closeMenu();
     });
     document.getElementById('menuLogout')?.addEventListener('click', () => {
         if (confirm('Вы уверены, что хотите выйти?')) {
             window.logout?.();
-            menuModal.style.display = 'none';
+            closeMenu();
         }
     });
 }
